@@ -5,20 +5,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney, friendlyFrequency } from '@/lib/utils'
 import { KpiCard } from '@/components/ui/KpiCard'
-
-type RecurringCharge = {
-  id: string
-  name: string
-  description: string | null
-  amount: number
-  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
-  charge_day: number | null
-  payment_method_type: 'account' | 'credit_card'
-  account_id: string | null
-  credit_card_id: string | null
-  next_charge_date: string | null
-  is_active: boolean
-}
+import {
+  getPendingRecurringAmount,
+  getPendingRecurringOccurrences,
+  isRecurringChargeDue,
+  processRecurringCharges,
+  type RecurringCharge,
+} from '@/lib/recurring-charges'
 
 type Account = {
   id: string
@@ -34,14 +27,11 @@ export default function RecurrentesPage() {
   const supabase = createClient()
 
   const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
   const [message, setMessage] = useState('')
   const [charges, setCharges] = useState<RecurringCharge[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [cards, setCards] = useState<CreditCard[]>([])
-
-  useEffect(() => {
-    void initialize()
-  }, [])
 
   const initialize = async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -80,6 +70,10 @@ export default function RecurrentesPage() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    void initialize()
+  }, [])
+
   const accountMap = useMemo(() => {
     const map = new Map<string, string>()
     accounts.forEach((a) => map.set(a.id, a.name))
@@ -92,19 +86,15 @@ export default function RecurrentesPage() {
     return map
   }, [cards])
 
-  const monthlyEquivalent = useMemo(() => {
-    return charges
-      .filter((c) => c.is_active)
-      .reduce((acc, c) => {
-        const amount = Number(c.amount || 0)
-        if (c.frequency === 'weekly') return acc + amount * 4
-        if (c.frequency === 'biweekly') return acc + amount * 2
-        if (c.frequency === 'monthly') return acc + amount
-        if (c.frequency === 'quarterly') return acc + amount / 3
-        if (c.frequency === 'yearly') return acc + amount / 12
-        return acc
-      }, 0)
-  }, [charges])
+  const dueCharges = useMemo(
+    () => charges.filter((charge) => isRecurringChargeDue(charge)),
+    [charges]
+  )
+
+  const pendingAmount = useMemo(
+    () => dueCharges.reduce((acc, charge) => acc + getPendingRecurringAmount(charge), 0),
+    [dueCharges]
+  )
 
   const paymentMethodLabel = (charge: RecurringCharge) => {
     if (charge.payment_method_type === 'account') {
@@ -128,6 +118,26 @@ export default function RecurrentesPage() {
     }
 
     setCharges((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  const handleProcess = async () => {
+    if (dueCharges.length === 0) return
+
+    setProcessing(true)
+    setMessage('')
+
+    try {
+      const processed = await processRecurringCharges(supabase, dueCharges)
+      setCharges((prev) => {
+        const processedMap = new Map(processed.map((charge) => [charge.id, charge]))
+        return prev.map((charge) => processedMap.get(charge.id) ?? charge)
+      })
+      setMessage('Cargos recurrentes procesados correctamente.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudieron procesar los recurrentes.')
+    } finally {
+      setProcessing(false)
+    }
   }
 
   if (loading) {
@@ -166,6 +176,15 @@ export default function RecurrentesPage() {
                 Nuevo cargo
               </Link>
 
+              <button
+                type="button"
+                onClick={handleProcess}
+                disabled={processing || dueCharges.length === 0}
+                className="rounded-2xl bg-violet-500 hover:bg-violet-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95 disabled:opacity-50"
+              >
+                {processing ? 'Procesando...' : 'Procesar recurrentes'}
+              </button>
+
               <Link
                 href="/"
                 className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 font-bold text-slate-200 hover:bg-slate-800 transition-all active:scale-95 shadow-lg"
@@ -190,9 +209,9 @@ export default function RecurrentesPage() {
             value={String(charges.filter((c) => c.is_active).length)}
           />
           <KpiCard
-            title="Total mensual estimado"
-            value={formatMoney(monthlyEquivalent)}
-            valueClassName="text-rose-600 font-bold"
+            title="Pendiente por procesar"
+            value={formatMoney(pendingAmount)}
+            valueClassName="text-violet-600 font-bold"
           />
           <KpiCard
             title="Próximo vencimiento"
@@ -239,6 +258,11 @@ export default function RecurrentesPage() {
                       <p className="text-sm font-medium text-slate-700">
                         {charge.next_charge_date ? new Date(charge.next_charge_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '---'}
                       </p>
+                      {getPendingRecurringOccurrences(charge).length > 0 ? (
+                        <p className="text-xs font-bold text-violet-600 mt-1">
+                          Pendientes: {getPendingRecurringOccurrences(charge).length}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-8 py-5">
                       <p className="text-sm text-slate-600 font-medium">{paymentMethodLabel(charge)}</p>

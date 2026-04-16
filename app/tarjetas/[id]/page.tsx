@@ -7,6 +7,13 @@ import { createClient } from '@/lib/supabase-browser'
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
+import {
+  getPendingInstallmentAmount,
+  getPendingInstallmentCount,
+  processInstallmentPlansForCard,
+  syncInstallmentPlans,
+  type CreditCardInstallment,
+} from '@/lib/credit-card-installments'
 
 type CreditCard = {
   id: string
@@ -32,15 +39,19 @@ type Transaction = {
   status: string
 }
 
+type InstallmentPlan = CreditCardInstallment
+
 export default function TarjetaDetallePage() {
   const supabase = createClient()
   const params = useParams()
   const cardId = params.id as string
 
   const [loading, setLoading] = useState(true)
+  const [processingInstallments, setProcessingInstallments] = useState(false)
   const [message, setMessage] = useState('')
   const [card, setCard] = useState<CreditCard | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [installments, setInstallments] = useState<InstallmentPlan[]>([])
 
   useEffect(() => {
     void initialize()
@@ -54,7 +65,11 @@ export default function TarjetaDetallePage() {
       return
     }
 
-    const [{ data: cardData, error: cardError }, { data: txData, error: txError }] =
+    const [
+      { data: cardData, error: cardError },
+      { data: txData, error: txError },
+      { data: installmentData, error: installmentError },
+    ] =
       await Promise.all([
         supabase
           .from('credit_cards')
@@ -86,14 +101,25 @@ export default function TarjetaDetallePage() {
           `)
           .eq('related_credit_card_id', cardId)
           .order('transaction_date', { ascending: false }),
+        supabase
+          .from('credit_card_installments')
+          .select('*')
+          .eq('credit_card_id', cardId)
+          .order('charge_day', { ascending: true }),
       ])
 
-    if (cardError || txError) {
-      setMessage(cardError?.message || txError?.message || 'Error al cargar la tarjeta')
+    if (cardError || txError || installmentError) {
+      setMessage(cardError?.message || txError?.message || installmentError?.message || 'Error al cargar la tarjeta')
     }
+
+    const syncedInstallments = await syncInstallmentPlans(
+      supabase,
+      ((installmentData as InstallmentPlan[]) ?? []),
+    ).catch(() => ((installmentData as InstallmentPlan[]) ?? []))
 
     setCard((cardData as CreditCard) ?? null)
     setTransactions((txData as Transaction[]) ?? [])
+    setInstallments(syncedInstallments)
     setLoading(false)
   }
 
@@ -118,6 +144,37 @@ export default function TarjetaDetallePage() {
       .filter((tx) => tx.transaction_type === 'credit_card_payment')
       .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
   }, [transactions])
+
+  const activeInstallments = useMemo(
+    () => installments.filter((plan) => plan.status === 'active' && plan.remaining_installments > 0),
+    [installments]
+  )
+
+  const monthInstallmentProjection = useMemo(() => {
+    return activeInstallments
+      .reduce((acc, plan) => acc + getPendingInstallmentAmount(plan), 0)
+  }, [activeInstallments])
+
+  const pendingInstallmentCharges = useMemo(() => {
+    return activeInstallments.reduce((acc, plan) => acc + getPendingInstallmentCount(plan), 0)
+  }, [activeInstallments])
+
+  const handleProcessInstallments = async () => {
+    if (!card || pendingInstallmentCharges === 0) return
+
+    setProcessingInstallments(true)
+    setMessage('')
+
+    try {
+      await processInstallmentPlansForCard(supabase, activeInstallments, card.account_id)
+      setMessage('MSI procesados correctamente. Ya se generaron los cargos reales pendientes.')
+      await initialize()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudieron procesar los MSI.')
+    } finally {
+      setProcessingInstallments(false)
+    }
+  }
 
   const usageColor = () => {
     if (usagePercent < 30) return 'bg-emerald-500'
@@ -189,6 +246,15 @@ export default function TarjetaDetallePage() {
                 Registrar pago
               </Link>
 
+              <button
+                type="button"
+                onClick={handleProcessInstallments}
+                disabled={processingInstallments || pendingInstallmentCharges === 0}
+                className="rounded-2xl bg-violet-500 hover:bg-violet-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95 disabled:opacity-50 disabled:hover:bg-violet-500"
+              >
+                {processingInstallments ? 'Procesando MSI...' : 'Procesar MSI'}
+              </button>
+
               <Link
                 href={`/tarjetas/${card.id}/editar`}
                 className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 font-bold text-slate-200 hover:bg-slate-800 transition shadow-lg active:scale-95"
@@ -251,9 +317,72 @@ export default function TarjetaDetallePage() {
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 mb-8">
+        <div className="grid gap-6 md:grid-cols-3 mb-8">
           <KpiCard title="Total Compras" value={formatMoney(totalPurchases)} valueClassName="text-slate-700" />
           <KpiCard title="Total Pagos" value={formatMoney(totalPayments)} valueClassName="text-emerald-600" />
+          <KpiCard title="MSI del mes" value={formatMoney(monthInstallmentProjection)} valueClassName="text-sky-600" />
+        </div>
+
+        <div className="rounded-[2.5rem] border border-slate-100 bg-white shadow-xl overflow-hidden mb-8">
+          <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-white">
+            <div>
+              <h2 className="text-2xl font-extrabold text-slate-900">Meses Sin Intereses</h2>
+              <p className="text-sm text-slate-400 mt-1">Seguimiento de compras diferidas ligadas a esta tarjeta.</p>
+            </div>
+
+            <Link
+              href={`/tarjetas/${card.id}/msi/nuevo`}
+              className="rounded-2xl bg-slate-900 px-5 py-3 font-bold text-white hover:bg-black transition"
+            >
+              Nuevo MSI
+            </Link>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {installments.length === 0 ? (
+              <div className="px-8 py-14 text-center text-slate-400 font-medium italic">
+                No hay compras MSI asociadas a esta tarjeta.
+              </div>
+            ) : (
+              installments.map((plan) => (
+                <div key={plan.id} className="px-8 py-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="font-extrabold text-slate-900">
+                      {plan.description} — {formatMoney(Number(plan.monthly_amount || 0))} ({plan.current_installment_number}/{plan.total_months})
+                    </p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Restan {plan.remaining_installments} mensualidades · Día {plan.charge_day}
+                    </p>
+                    {getPendingInstallmentCount(plan) > 0 ? (
+                      <p className="text-xs text-violet-600 font-bold mt-1">
+                        Pendientes por procesar: {getPendingInstallmentCount(plan)}
+                      </p>
+                    ) : null}
+                    {plan.notes ? <p className="text-xs text-slate-400 mt-1">{plan.notes}</p> : null}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold border ${
+                      plan.status === 'active'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : plan.status === 'completed'
+                          ? 'bg-slate-100 text-slate-600 border-slate-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {plan.status === 'active' ? 'Activo' : plan.status === 'completed' ? 'Completado' : 'Cancelado'}
+                    </span>
+
+                    <Link
+                      href={`/tarjetas/${card.id}/msi/${plan.id}/editar`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
+                    >
+                      Editar
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <div className="rounded-[2.5rem] border border-slate-100 bg-white shadow-xl overflow-hidden">

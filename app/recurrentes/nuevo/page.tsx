@@ -48,10 +48,6 @@ export default function NuevoRecurrentePage() {
   const [isActive, setIsActive] = useState(true)
   const [createReminder, setCreateReminder] = useState(true)
 
-  useEffect(() => {
-    void initialize()
-  }, [])
-
   const initialize = async () => {
     const { data: sessionData } = await supabase.auth.getSession()
     if (!sessionData.session) {
@@ -86,6 +82,11 @@ export default function NuevoRecurrentePage() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    void initialize()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const nextChargePreview = useMemo(() => {
     return calculateNextChargeDate(frequency, chargeDay ? Number(chargeDay) : null)
   }, [frequency, chargeDay])
@@ -99,6 +100,7 @@ export default function NuevoRecurrentePage() {
   const validate = () => {
     if (!name.trim()) return fail('Ingresa el nombre del cargo.'), false
     if (!amount || Number(amount) <= 0) return fail('Ingresa un monto válido.'), false
+    if (!categoryId) return fail('Selecciona una categoría.'), false
 
     if (['monthly', 'quarterly', 'yearly'].includes(frequency)) {
       if (!chargeDay || Number(chargeDay) < 1 || Number(chargeDay) > 31) {
@@ -147,6 +149,7 @@ export default function NuevoRecurrentePage() {
         account_id: paymentMethodType === 'account' ? accountId : null,
         credit_card_id: paymentMethodType === 'credit_card' ? creditCardId : null,
         next_charge_date: nextChargePreview,
+        last_processed_charge_date: null,
         is_active: isActive,
         create_reminder: createReminder,
       })
@@ -163,9 +166,10 @@ export default function NuevoRecurrentePage() {
       if (data?.id) {
         await syncRecurringReminders(supabase, userId, data.id)
       }
-    } catch (syncErr: any) {
+    } catch (syncErr: unknown) {
+      const syncMessage = syncErr instanceof Error ? syncErr.message : 'Error desconocido'
       console.error('Error syncing reminder detail:', {
-        message: syncErr?.message || 'Error desconocido',
+        message: syncMessage,
         error: syncErr
       })
     }
