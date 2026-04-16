@@ -67,14 +67,18 @@ export async function allocateCreditCardPayment(
 
   const card = baseline ?? await readCard(supabase, cardId)
 
-  if (amount > card.current_balance) {
-    throw new Error('El pago no puede ser mayor al saldo usado de la tarjeta.')
-  }
+if (card.current_balance == null) {
+  throw new Error('La tarjeta no tiene saldo actual definido.')
+}
 
-  return {
-    applied_to_minimum_payment: Math.min(amount, Math.max(0, card.minimum_payment)),
-    applied_to_no_interest_payment: Math.min(amount, Math.max(0, card.no_interest_payment)),
-  }
+if (amount > card.current_balance) {
+  throw new Error('El pago no puede ser mayor al saldo usado de la tarjeta.')
+}
+
+return {
+  applied_to_minimum_payment: Math.min(amount, Math.max(0, card.minimum_payment ?? 0)),
+  applied_to_no_interest_payment: Math.min(amount, Math.max(0, card.no_interest_payment ?? 0)),
+}
 }
 
 async function buildCardBaselineAfterReversal(
