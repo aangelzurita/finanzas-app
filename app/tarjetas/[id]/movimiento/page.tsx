@@ -4,6 +4,11 @@ import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import {
+  applyTransactionMetadata,
+  prepareTransactionForPersistence,
+  type TransactionLedgerEntry,
+} from '@/lib/accounting/transactions'
 
 type CreditCard = {
   id: string
@@ -51,14 +56,7 @@ export default function TarjetaMovimientoPage() {
   const [sourceAccountId, setSourceAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
 
-  useEffect(() => {
-    const now = new Date()
-    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    setTransactionDate(local.toISOString().slice(0, 16))
-    void initialize()
-  }, [cardId])
-
-  const initialize = async () => {
+  async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
 
     if (!sessionData.session) {
@@ -107,6 +105,13 @@ export default function TarjetaMovimientoPage() {
     setAccounts((accountsData as Account[]) ?? [])
     setLoading(false)
   }
+
+  useEffect(() => {
+    const now = new Date()
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    setTransactionDate(local.toISOString().slice(0, 16))
+    void initialize()
+  }, [cardId])
 
   const fail = (text: string) => {
     setMessage(text)
@@ -163,15 +168,28 @@ export default function TarjetaMovimientoPage() {
       return
     }
 
+    const preparedTx = await prepareTransactionForPersistence(supabase, {
+      transaction_type: movementType,
+      amount: Number(amount),
+      source_account_id: movementType === 'credit_card_payment' ? sourceAccountId : card.account_id,
+      destination_account_id: null,
+      related_credit_card_id: card.id,
+      related_debt_id: null,
+    })
+
     const payload: Record<string, unknown> = {
       user_id: userId,
       transaction_type: movementType,
-      amount: Number(amount),
+      amount: preparedTx.amount,
       transaction_date: new Date(transactionDate).toISOString(),
       description: description || null,
       related_credit_card_id: card.id,
       status: 'completed',
       affects_budget: movementType === 'credit_card_purchase',
+      source_account_id: null,
+      destination_account_id: null,
+      category_id: null,
+      related_debt_id: null,
     }
 
     if (movementType === 'credit_card_purchase') {
@@ -181,14 +199,26 @@ export default function TarjetaMovimientoPage() {
 
     if (movementType === 'credit_card_payment') {
       payload.source_account_id = sourceAccountId
+      payload.applied_to_minimum_payment = preparedTx.applied_to_minimum_payment ?? 0
+      payload.applied_to_no_interest_payment = preparedTx.applied_to_no_interest_payment ?? 0
     }
 
-    const { error } = await supabase
+    const { data: insertedTx, error } = await supabase
       .from('transactions')
       .insert(payload)
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .single()
 
-    if (error) {
-      fail(`Error: ${error.message}`)
+    if (error || !insertedTx) {
+      fail(`Error: ${error?.message || 'No se pudo guardar el movimiento.'}`)
+      return
+    }
+
+    try {
+      await applyTransactionMetadata(supabase, insertedTx as TransactionLedgerEntry)
+    } catch (impactError) {
+      await supabase.from('transactions').delete().eq('id', insertedTx.id)
+      fail(impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.')
       return
     }
 

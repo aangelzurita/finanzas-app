@@ -69,6 +69,7 @@ export default function EditarCuentaPage() {
                 name: name.trim(),
                 institution: institution.trim() || null,
                 account_type: accountType,
+                initial_balance: Number(currentBalance),
                 current_balance: Number(currentBalance),
             })
             .eq('id', accountId)

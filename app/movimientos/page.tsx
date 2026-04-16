@@ -2,8 +2,14 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
+import {
+  applyTransactionMetadata,
+  reverseTransactionMetadata,
+  type TransactionLedgerEntry,
+} from '@/lib/accounting/transactions'
 
 type TransactionRow = {
   id: string
@@ -27,6 +33,7 @@ type Account = {
 
 export default function MovimientosPage() {
   const supabase = createClient()
+  const router = useRouter()
 
   const [loading, setLoading] = useState(true)
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
@@ -38,21 +45,21 @@ export default function MovimientosPage() {
   const [message, setMessage] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  useEffect(() => {
-    void initialize()
-  }, [])
-
-  const initialize = async () => {
+  async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
 
     if (!sessionData.session) {
-      window.location.href = '/'
+      router.push('/')
       return
     }
 
     await loadData()
     setLoading(false)
   }
+
+  useEffect(() => {
+    void initialize()
+  }, [])
 
   const loadData = async () => {
     const [{ data: txData }, { data: accountsData }] = await Promise.all([
@@ -121,9 +128,34 @@ export default function MovimientosPage() {
     setDeletingId(id)
     setMessage('')
 
+    const { data: txData, error: txError } = await supabase
+      .from('transactions')
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .eq('id', id)
+      .single()
+
+    if (txError || !txData) {
+      setMessage(`Error al cargar el movimiento: ${txError?.message || 'No se encontró el registro.'}`)
+      setDeletingId(null)
+      return
+    }
+
+    try {
+      await reverseTransactionMetadata(supabase, txData as TransactionLedgerEntry)
+    } catch (reverseError) {
+      setMessage(reverseError instanceof Error ? reverseError.message : 'No se pudo revertir el movimiento.')
+      setDeletingId(null)
+      return
+    }
+
     const { error } = await supabase.from('transactions').delete().eq('id', id)
 
     if (error) {
+      try {
+        await applyTransactionMetadata(supabase, txData as TransactionLedgerEntry)
+      } catch {
+        // Preserve the delete error in the UI even if compensation also fails.
+      }
       setMessage(`Error al eliminar: ${error.message}`)
       setDeletingId(null)
       return

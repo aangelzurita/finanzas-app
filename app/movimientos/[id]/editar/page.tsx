@@ -4,6 +4,12 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase-browser'
+import {
+  applyTransactionMetadata,
+  prepareTransactionForPersistence,
+  reverseTransactionMetadata,
+  type TransactionLedgerEntry,
+} from '@/lib/accounting/transactions'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 
 type Account = {
@@ -63,12 +69,9 @@ export default function EditarMovimientoPage() {
   const [categoryId, setCategoryId] = useState('')
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
+  const [originalTransaction, setOriginalTransaction] = useState<(TransactionLedgerEntry & { id: string }) | null>(null)
 
-  useEffect(() => {
-    void initialize()
-  }, [transactionId])
-
-  const initialize = async () => {
+  async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
 
     if (!sessionData.session) {
@@ -110,6 +113,17 @@ export default function EditarMovimientoPage() {
     setCategoryId(txData.category_id ?? '')
     setRelatedCreditCardId(txData.related_credit_card_id ?? '')
     setRelatedDebtId(txData.related_debt_id ?? '')
+    setOriginalTransaction({
+      id: txData.id,
+      transaction_type: txData.transaction_type,
+      amount: Number(txData.amount ?? 0),
+      source_account_id: txData.source_account_id ?? null,
+      destination_account_id: txData.destination_account_id ?? null,
+      related_credit_card_id: txData.related_credit_card_id ?? null,
+      related_debt_id: txData.related_debt_id ?? null,
+      applied_to_minimum_payment: txData.applied_to_minimum_payment ?? 0,
+      applied_to_no_interest_payment: txData.applied_to_no_interest_payment ?? 0,
+    })
 
     const dt = new Date(txData.transaction_date)
     const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
@@ -117,6 +131,10 @@ export default function EditarMovimientoPage() {
 
     setLoading(false)
   }
+
+  useEffect(() => {
+    void initialize()
+  }, [transactionId])
 
   const incomeCategories = useMemo(
     () => categories.filter((c) => c.category_type === 'income'),
@@ -202,6 +220,11 @@ export default function EditarMovimientoPage() {
 
     if (!validateForm()) return
 
+    if (!originalTransaction) {
+      fail('No se pudo cargar el movimiento original.')
+      return
+    }
+
     const parsedAmount = Number(amount)
 
     const payload: Record<string, unknown> = {
@@ -250,15 +273,52 @@ export default function EditarMovimientoPage() {
       payload.related_debt_id = relatedDebtId
     }
 
-    const { error } = await supabase
+    const preparedNextTransaction = await prepareTransactionForPersistence(supabase, {
+      transaction_type: payload.transaction_type as TransactionType,
+      amount: payload.amount as number,
+      source_account_id: payload.source_account_id as string | null,
+      destination_account_id: payload.destination_account_id as string | null,
+      related_credit_card_id: payload.related_credit_card_id as string | null,
+      related_debt_id: payload.related_debt_id as string | null,
+    }, originalTransaction)
+
+    payload.applied_to_minimum_payment = preparedNextTransaction.applied_to_minimum_payment ?? 0
+    payload.applied_to_no_interest_payment = preparedNextTransaction.applied_to_no_interest_payment ?? 0
+
+    const nextTransaction = preparedNextTransaction satisfies TransactionLedgerEntry
+
+    try {
+      await reverseTransactionMetadata(supabase, originalTransaction)
+      await applyTransactionMetadata(supabase, nextTransaction)
+    } catch (reapplyError) {
+      try {
+        await applyTransactionMetadata(supabase, originalTransaction)
+      } catch {
+        // Keep the original error for the UI.
+      }
+      fail(reapplyError instanceof Error ? reapplyError.message : 'No se pudo recalcular el movimiento.')
+      return
+    }
+
+    const { data: updatedTx, error } = await supabase
       .from('transactions')
       .update(payload)
       .eq('id', transactionId)
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .single()
 
-    if (error) {
-      fail(`Error: ${error.message}`)
+    if (error || !updatedTx) {
+      try {
+        await reverseTransactionMetadata(supabase, nextTransaction)
+        await applyTransactionMetadata(supabase, originalTransaction)
+      } catch {
+        // Intentionally swallow here so the original update error reaches the UI.
+      }
+      fail(`Error: ${error?.message || 'No se pudo actualizar el movimiento.'}`)
       return
     }
+
+    setOriginalTransaction(updatedTx as TransactionLedgerEntry & { id: string })
 
     setMessage('Movimiento actualizado correctamente.')
     setMessageType('success')
@@ -272,13 +332,30 @@ export default function EditarMovimientoPage() {
   const handleDelete = async () => {
     if (!confirm('¿Estás seguro de que quieres eliminar este movimiento?')) return
 
+    if (!originalTransaction) {
+      fail('No se pudo cargar el movimiento original.')
+      return
+    }
+
     setSaving(true)
+    try {
+      await reverseTransactionMetadata(supabase, originalTransaction)
+    } catch (reverseError) {
+      fail(reverseError instanceof Error ? reverseError.message : 'No se pudo revertir el movimiento.')
+      return
+    }
+
     const { error } = await supabase
       .from('transactions')
       .delete()
       .eq('id', transactionId)
 
     if (error) {
+      try {
+        await applyTransactionMetadata(supabase, originalTransaction)
+      } catch {
+        // Preserve the delete error for the UI.
+      }
       fail(`Error: ${error.message}`)
       return
     }

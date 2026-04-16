@@ -3,6 +3,11 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import {
+  applyTransactionMetadata,
+  prepareTransactionForPersistence,
+  type TransactionLedgerEntry,
+} from '@/lib/accounting/transactions'
 import { ArrowLeft } from 'lucide-react'
 
 type Account = {
@@ -63,11 +68,7 @@ export default function NuevoMovimientoPage() {
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
 
-  useEffect(() => {
-    void initialize()
-  }, [])
-
-  const initialize = async () => {
+  async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
 
     if (!sessionData.session) {
@@ -89,6 +90,10 @@ export default function NuevoMovimientoPage() {
     setDebts(debtsData ?? [])
     setLoading(false)
   }
+
+  useEffect(() => {
+    void initialize()
+  }, [])
 
   const incomeCategories = useMemo(
     () => categories.filter((c) => c.category_type === 'income'),
@@ -151,14 +156,41 @@ export default function NuevoMovimientoPage() {
       return
     }
 
-    const payload: Record<string, unknown> = {
-      user_id: userId,
+    const draftTransaction: TransactionLedgerEntry = {
       transaction_type: transactionType,
       amount: parsedAmount,
+      source_account_id:
+        transactionType === 'income'
+          ? null
+          : transactionType === 'credit_card_purchase'
+            ? sourceAccountId
+            : sourceAccountId || null,
+      destination_account_id:
+        transactionType === 'income' || transactionType === 'transfer'
+          ? destinationAccountId || null
+          : null,
+      related_credit_card_id:
+        transactionType === 'credit_card_purchase' || transactionType === 'credit_card_payment'
+          ? relatedCreditCardId || null
+          : null,
+      related_debt_id: transactionType === 'debt_payment' ? relatedDebtId || null : null,
+    }
+
+    const preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction)
+
+    const payload: Record<string, unknown> = {
+      user_id: userId,
+      transaction_type: preparedTx.transaction_type,
+      amount: preparedTx.amount,
       transaction_date: new Date(transactionDate).toISOString(),
       description: description || null,
       status: 'completed',
       affects_budget: ['expense', 'credit_card_purchase'].includes(transactionType),
+      source_account_id: null,
+      destination_account_id: null,
+      category_id: null,
+      related_credit_card_id: null,
+      related_debt_id: null,
     }
 
     if (transactionType === 'income') {
@@ -185,6 +217,8 @@ export default function NuevoMovimientoPage() {
     if (transactionType === 'credit_card_payment') {
       payload.source_account_id = sourceAccountId
       payload.related_credit_card_id = relatedCreditCardId
+      payload.applied_to_minimum_payment = preparedTx.applied_to_minimum_payment ?? 0
+      payload.applied_to_no_interest_payment = preparedTx.applied_to_no_interest_payment ?? 0
     }
 
     if (transactionType === 'debt_payment') {
@@ -192,32 +226,25 @@ export default function NuevoMovimientoPage() {
       payload.related_debt_id = relatedDebtId
     }
 
-    const { error } = await supabase.from('transactions').insert(payload)
+    const { data: insertedTx, error } = await supabase
+      .from('transactions')
+      .insert(payload)
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .single()
 
-    if (error) {
-      setMessage(`Error: ${error.message}`)
+    if (error || !insertedTx) {
+      setMessage(`Error: ${error?.message || 'No se pudo guardar el movimiento.'}`)
       setSaving(false)
       return
     }
 
-    // Si es un pago de deuda, actualizar el balance de la deuda
-    if (transactionType === 'debt_payment' && relatedDebtId) {
-      const { data: debtData } = await supabase
-        .from('debts')
-        .select('current_balance')
-        .eq('id', relatedDebtId)
-        .single()
-
-      if (debtData) {
-        const newBalance = Number(debtData.current_balance) - parsedAmount
-        await supabase
-          .from('debts')
-          .update({
-            current_balance: newBalance,
-            status: newBalance <= 0 ? 'paid' : 'active'
-          })
-          .eq('id', relatedDebtId)
-      }
+    try {
+      await applyTransactionMetadata(supabase, insertedTx as TransactionLedgerEntry)
+    } catch (impactError) {
+      await supabase.from('transactions').delete().eq('id', insertedTx.id)
+      setMessage(impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.')
+      setSaving(false)
+      return
     }
 
     setMessage('Movimiento guardado correctamente.')
