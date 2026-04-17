@@ -8,6 +8,12 @@ import {
   prepareTransactionForPersistence,
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
+import {
+  calculateMonthlyInstallment,
+  calculateTotalAmount,
+  createInstallmentPlan,
+  validateInstallmentDraft,
+} from '@/lib/credit-card-installments'
 import { ArrowLeft } from 'lucide-react'
 
 type Account = {
@@ -39,6 +45,7 @@ type TransactionType =
   | 'transfer'
   | 'credit_card_purchase'
   | 'credit_card_payment'
+  | 'credit_card_refund'
   | 'debt_payment'
 
 export default function NuevoMovimientoPage() {
@@ -67,6 +74,15 @@ export default function NuevoMovimientoPage() {
   const [categoryId, setCategoryId] = useState('')
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
+  const [affectsBalance, setAffectsBalance] = useState(true)
+  const [isMsi, setIsMsi] = useState(false)
+  const [installmentDescription, setInstallmentDescription] = useState('')
+  const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
+  const [installmentTotalMonths, setInstallmentTotalMonths] = useState('')
+  const [installmentCurrentNumber, setInstallmentCurrentNumber] = useState('1')
+  const [installmentChargeDay, setInstallmentChargeDay] = useState('')
+  const [installmentStartDate, setInstallmentStartDate] = useState('')
+  const [installmentNotes, setInstallmentNotes] = useState('')
 
   async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -115,6 +131,18 @@ export default function NuevoMovimientoPage() {
     [accounts]
   )
 
+  const installmentMonthlyAmountPreview = useMemo(() => {
+    const monthlyAmount = Number(installmentMonthlyAmount)
+    if (monthlyAmount > 0) return monthlyAmount
+    return calculateMonthlyInstallment(Number(amount), Number(installmentTotalMonths))
+  }, [installmentMonthlyAmount, amount, installmentTotalMonths])
+
+  const installmentTotalAmountPreview = useMemo(() => {
+    const totalAmount = Number(amount)
+    if (totalAmount > 0) return totalAmount
+    return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+  }, [amount, installmentMonthlyAmount, installmentTotalMonths])
+
   const handleTypeChange = (value: TransactionType) => {
     setTransactionType(value)
     setMessage('')
@@ -123,6 +151,15 @@ export default function NuevoMovimientoPage() {
     setCategoryId('')
     setRelatedCreditCardId('')
     setRelatedDebtId('')
+    setAffectsBalance(true)
+    setIsMsi(false)
+    setInstallmentDescription('')
+    setInstallmentMonthlyAmount('')
+    setInstallmentTotalMonths('')
+    setInstallmentCurrentNumber('1')
+    setInstallmentChargeDay('')
+    setInstallmentStartDate('')
+    setInstallmentNotes('')
   }
 
   const handleCreditCardChange = (creditCardId: string) => {
@@ -134,12 +171,20 @@ export default function NuevoMovimientoPage() {
     }
   }
 
+  const fail = (text: string) => {
+    setMessage(text)
+    setSaving(false)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setMessage('')
 
-    const parsedAmount = Number(amount)
+    const parsedAmount =
+      isMsi && transactionType === 'credit_card_purchase'
+        ? installmentTotalAmountPreview
+        : Number(amount)
 
     if (!parsedAmount || parsedAmount <= 0) {
       setMessage('Ingresa un monto válido.')
@@ -153,6 +198,37 @@ export default function NuevoMovimientoPage() {
     if (!userId) {
       setMessage('No hay sesión activa.')
       setSaving(false)
+      return
+    }
+
+    if (transactionType === 'credit_card_purchase' && isMsi) {
+      const installmentValidation = validateInstallmentDraft({
+        categoryId,
+        totalAmount: installmentTotalAmountPreview,
+        monthlyAmount: installmentMonthlyAmountPreview,
+        totalMonths: Number(installmentTotalMonths),
+        currentInstallmentNumber: Number(installmentCurrentNumber),
+        chargeDay: Number(installmentChargeDay),
+      })
+
+      if (installmentValidation) {
+        setMessage(installmentValidation)
+        setSaving(false)
+        return
+      }
+
+      if (Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
+        const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+        if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
+          setMessage('El monto total no coincide con la mensualidad y el número de meses del MSI.')
+          setSaving(false)
+          return
+        }
+      }
+    }
+
+    if (transactionType === 'credit_card_refund' && !relatedCreditCardId) {
+      fail('Selecciona la tarjeta del reembolso.')
       return
     }
 
@@ -170,10 +246,11 @@ export default function NuevoMovimientoPage() {
           ? destinationAccountId || null
           : null,
       related_credit_card_id:
-        transactionType === 'credit_card_purchase' || transactionType === 'credit_card_payment'
+        transactionType === 'credit_card_purchase' || transactionType === 'credit_card_payment' || transactionType === 'credit_card_refund'
           ? relatedCreditCardId || null
           : null,
       related_debt_id: transactionType === 'debt_payment' ? relatedDebtId || null : null,
+      affects_balance: affectsBalance,
     }
 
     const preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction)
@@ -185,6 +262,7 @@ export default function NuevoMovimientoPage() {
       transaction_date: new Date(transactionDate).toISOString(),
       description: description || null,
       status: 'completed',
+      affects_balance: affectsBalance,
       affects_budget: ['expense', 'credit_card_purchase'].includes(transactionType),
       source_account_id: null,
       destination_account_id: null,
@@ -221,6 +299,10 @@ export default function NuevoMovimientoPage() {
       payload.applied_to_no_interest_payment = preparedTx.applied_to_no_interest_payment ?? 0
     }
 
+    if (transactionType === 'credit_card_refund') {
+      payload.related_credit_card_id = relatedCreditCardId
+    }
+
     if (transactionType === 'debt_payment') {
       payload.source_account_id = sourceAccountId
       payload.related_debt_id = relatedDebtId
@@ -229,7 +311,7 @@ export default function NuevoMovimientoPage() {
     const { data: insertedTx, error } = await supabase
       .from('transactions')
       .insert(payload)
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
       .single()
 
     if (error || !insertedTx) {
@@ -240,6 +322,23 @@ export default function NuevoMovimientoPage() {
 
     try {
       await applyTransactionMetadata(supabase, insertedTx as TransactionLedgerEntry)
+
+      if (transactionType === 'credit_card_purchase' && isMsi && relatedCreditCardId) {
+        await createInstallmentPlan(supabase, {
+          userId,
+          creditCardId: relatedCreditCardId,
+          purchaseTransactionId: insertedTx.id,
+          categoryId,
+          description: installmentDescription.trim() || description.trim() || 'Compra MSI',
+          totalAmount: installmentTotalAmountPreview,
+          monthlyAmount: installmentMonthlyAmountPreview,
+          totalMonths: Number(installmentTotalMonths),
+          currentInstallmentNumber: Number(installmentCurrentNumber),
+          chargeDay: Number(installmentChargeDay),
+          startDate: installmentStartDate || undefined,
+          notes: installmentNotes,
+        })
+      }
     } catch (impactError) {
       await supabase.from('transactions').delete().eq('id', insertedTx.id)
       setMessage(impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.')
@@ -296,6 +395,7 @@ export default function NuevoMovimientoPage() {
                 <option value="transfer">🔄 Transferencia</option>
                 <option value="credit_card_purchase">💳 Compra con TDC</option>
                 <option value="credit_card_payment">💰 Pago de TDC</option>
+                <option value="credit_card_refund">↩️ Reembolso TDC</option>
                 <option value="debt_payment">💸 Pago de Deuda</option>
               </select>
             </div>
@@ -307,7 +407,7 @@ export default function NuevoMovimientoPage() {
                 <input
                   type="number"
                   step="0.01"
-                  required
+                  required={!isMsi || transactionType !== 'credit_card_purchase'}
                   className="w-full rounded-2xl border-2 border-emerald-50 bg-emerald-50/30 p-4 pl-10 font-black text-emerald-600 focus:border-emerald-500 focus:ring-0 transition-all text-3xl placeholder:text-emerald-200"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -362,6 +462,7 @@ export default function NuevoMovimientoPage() {
                     ))}
                   </select>
                 </div>
+
               </>
             )}
 
@@ -476,6 +577,115 @@ export default function NuevoMovimientoPage() {
                     ))}
                   </select>
                 </div>
+
+                <div className="col-span-2">
+                  <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                      checked={isMsi}
+                      onChange={(e) => setIsMsi(e.target.checked)}
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">Es compra a MSI</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Guarda la compra y crea el plan MSI automáticamente.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {isMsi ? (
+                  <>
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Meses totales</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentTotalMonths}
+                        onChange={(e) => setInstallmentTotalMonths(e.target.value)}
+                        placeholder="12"
+                      />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Mensualidad</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentMonthlyAmount}
+                        onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Próxima mensualidad</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentCurrentNumber}
+                        onChange={(e) => setInstallmentCurrentNumber(e.target.value)}
+                        placeholder="1"
+                      />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Día de cargo</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentChargeDay}
+                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
+                        placeholder="15"
+                      />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Fecha de inicio</label>
+                      <input
+                        type="date"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentStartDate}
+                        onChange={(e) => setInstallmentStartDate(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Descripción MSI</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        value={installmentDescription}
+                        onChange={(e) => setInstallmentDescription(e.target.value)}
+                        placeholder="Si la dejas vacía, usamos la descripción de la compra"
+                      />
+                    </div>
+
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Resumen MSI</label>
+                      <div className="rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 text-sm font-bold text-slate-700">
+                        Total calculado: {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} · Mensualidad: {installmentMonthlyAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                      </div>
+                    </div>
+
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Notas MSI</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg placeholder:text-slate-300"
+                        value={installmentNotes}
+                        onChange={(e) => setInstallmentNotes(e.target.value)}
+                        placeholder="Promoción, referencia o detalle del plan"
+                      />
+                    </div>
+                  </>
+                ) : null}
               </>
             )}
 
@@ -517,6 +727,25 @@ export default function NuevoMovimientoPage() {
               </>
             )}
 
+            {(transactionType === 'credit_card_refund') && (
+              <div className="col-span-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Tarjeta del reembolso</label>
+                <select
+                  required
+                  className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                  value={relatedCreditCardId}
+                  onChange={(e) => setRelatedCreditCardId(e.target.value)}
+                >
+                  <option value="">Selecciona tarjeta</option>
+                  {creditCards.map((card) => (
+                    <option key={card.id} value={card.id}>
+                      {card.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {(transactionType === 'debt_payment') && (
               <>
                 <div className="col-span-2 md:col-span-1">
@@ -554,6 +783,24 @@ export default function NuevoMovimientoPage() {
                 </div>
               </>
             )}
+
+            <div className="col-span-2">
+              <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  checked={affectsBalance}
+                  onChange={(e) => setAffectsBalance(e.target.checked)}
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Impactar saldos automáticamente</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Desactívalo si este movimiento ya venía reflejado en el saldo actual. Lo guardamos en historial,
+                    pero no lo volvemos a sumar ni a restar.
+                  </p>
+                </div>
+              </label>
+            </div>
 
             <div className="col-span-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Descripción / Notas</label>

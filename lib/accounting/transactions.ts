@@ -6,6 +6,7 @@ export type TransactionType =
   | 'transfer'
   | 'credit_card_purchase'
   | 'credit_card_payment'
+  | 'credit_card_refund'
   | 'debt_payment'
 
 export type TransactionLedgerEntry = {
@@ -16,6 +17,8 @@ export type TransactionLedgerEntry = {
   destination_account_id: string | null
   related_credit_card_id: string | null
   related_debt_id: string | null
+  related_installment_id?: string | null
+  affects_balance?: boolean | null
   applied_to_minimum_payment?: number | null
   applied_to_no_interest_payment?: number | null
 }
@@ -92,6 +95,7 @@ async function buildCardBaselineAfterReversal(
 
   if (
     previousTx.transaction_type !== 'credit_card_payment' ||
+    previousTx.affects_balance === false ||
     previousTx.related_credit_card_id !== nextCardId
   ) {
     return card
@@ -109,7 +113,7 @@ export async function prepareTransactionForPersistence(
   tx: TransactionLedgerEntry,
   previousTx?: TransactionLedgerEntry
 ) {
-  if (tx.transaction_type !== 'credit_card_payment') {
+  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) {
     return {
       ...tx,
       applied_to_minimum_payment: 0,
@@ -167,7 +171,7 @@ export async function applyTransactionMetadata(
   supabase: SupabaseClient,
   tx: TransactionLedgerEntry
 ) {
-  if (tx.transaction_type !== 'credit_card_payment') return
+  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) return
 
   await updateCreditCardPaymentMetadata(
     supabase,
@@ -181,7 +185,7 @@ export async function reverseTransactionMetadata(
   supabase: SupabaseClient,
   tx: TransactionLedgerEntry
 ) {
-  if (tx.transaction_type !== 'credit_card_payment') return
+  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) return
 
   await updateCreditCardPaymentMetadata(
     supabase,

@@ -28,6 +28,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { Panel } from '@/components/ui/Panel'
 import {
   getPendingInstallmentAmount,
+  getInstallmentDisplayState,
   isInstallmentDueThisMonth,
   syncInstallmentPlans,
   type CreditCardInstallment,
@@ -111,7 +112,7 @@ export default function Home() {
           .eq('period_year', currentYear),
         supabase
           .from('credit_cards')
-          .select('id, name, payment_due_day, statement_cutoff_day, minimum_payment, no_interest_payment')
+          .select('id, name, current_balance, payment_due_day, statement_cutoff_day, minimum_payment, no_interest_payment')
           .eq('is_active', true)
           .order('name')
       ])
@@ -213,6 +214,21 @@ export default function Home() {
 
   const upcomingCardPayments = useMemo(() => buildUpcomingCardPayments(creditCards), [creditCards])
 
+  const pendingReminderAmount = useMemo(
+    () => reminders.reduce((acc, reminder) => acc + Number(reminder.amount || 0), 0),
+    [reminders]
+  )
+
+  const pendingCardPaymentAmount = useMemo(
+    () => upcomingCardPayments.reduce((acc, card) => acc + Number(card.no_interest_payment || card.minimum_payment || 0), 0),
+    [upcomingCardPayments]
+  )
+
+  const availableAfterPending = useMemo(
+    () => metrics.disponible - metrics.fixedExpense - metrics.monthInstallments - pendingReminderAmount - pendingCardPaymentAmount,
+    [metrics.disponible, metrics.fixedExpense, metrics.monthInstallments, pendingReminderAmount, pendingCardPaymentAmount]
+  )
+
   const consolidatedCommitments = useMemo<CommitmentItem[]>(
     () =>
       buildConsolidatedCommitments(
@@ -298,7 +314,7 @@ export default function Home() {
         {/* KPIs Principales */}
         <div className="grid gap-6 md:grid-cols-4 mb-8">
           <KpiCard title="Efectivo Disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
-          <KpiCard title="Disponible tras pendientes" value={formatMoney(metrics.flow)} valueClassName={metrics.flow >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+          <KpiCard title="Disponible tras pendientes" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
           <KpiCard title="Deuda Total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
           <KpiCard title="MSI pendientes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
         </div>
@@ -396,17 +412,21 @@ export default function Home() {
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {monthInstallmentPlans.map((plan) => (
-                  <div key={plan.id} className="flex items-center justify-between py-4">
-                    <div>
-                      <p className="font-bold text-slate-900">{plan.description}</p>
-                      <p className="text-sm text-slate-500">
-                        {plan.current_installment_number}/{plan.total_months} · Día {plan.charge_day}
-                      </p>
+                {monthInstallmentPlans.map((plan) => {
+                  const displayState = getInstallmentDisplayState(plan)
+
+                  return (
+                    <div key={plan.id} className="flex items-center justify-between py-4">
+                      <div>
+                        <p className="font-bold text-slate-900">{plan.description}</p>
+                        <p className="text-sm text-slate-500">
+                          Próxima {displayState.currentInstallmentNumber}/{plan.total_months} · Día {plan.charge_day}
+                        </p>
+                      </div>
+                      <p className="font-black text-sky-600">{formatMoney(Number(plan.monthly_amount || 0))}</p>
                     </div>
-                    <p className="font-black text-sky-600">{formatMoney(Number(plan.monthly_amount || 0))}</p>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </Panel>

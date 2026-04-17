@@ -33,10 +33,6 @@ export const validateCard = (values: CardFormValues): { ok: boolean; error?: str
         return { ok: false, error: 'La fecha límite de pago debe estar entre 1 y 31.' }
     }
 
-    if (values.currentBalance && Number(values.currentBalance) < 0) {
-        return { ok: false, error: 'El saldo usado no puede ser negativo.' }
-    }
-
     if (values.minimumPayment && Number(values.minimumPayment) < 0) {
         return { ok: false, error: 'El pago mínimo no puede ser negativo.' }
     }

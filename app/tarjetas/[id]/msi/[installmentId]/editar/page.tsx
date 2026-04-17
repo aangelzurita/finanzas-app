@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { InstallmentPlanForm } from '@/components/cards/InstallmentPlanForm'
 import {
+  calculateTotalAmount,
   calculateMonthlyInstallment,
   calculateRemainingInstallments,
   inferInstallmentStartDate,
@@ -33,6 +34,7 @@ export default function EditarMsiPage() {
     description: '',
     categoryId: '',
     totalAmount: '',
+    monthlyAmount: '',
     totalMonths: '',
     currentInstallmentNumber: '1',
     chargeDay: '',
@@ -82,6 +84,7 @@ export default function EditarMsiPage() {
       description: data.description ?? '',
       categoryId: data.category_id ?? '',
       totalAmount: String(data.total_amount ?? ''),
+      monthlyAmount: String(data.monthly_amount ?? ''),
       totalMonths: String(data.total_months ?? ''),
       currentInstallmentNumber: String(data.current_installment_number ?? '1'),
       chargeDay: String(data.charge_day ?? ''),
@@ -99,10 +102,17 @@ export default function EditarMsiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installmentId])
 
-  const monthlyAmountPreview = useMemo(
-    () => calculateMonthlyInstallment(Number(values.totalAmount), Number(values.totalMonths)),
-    [values.totalAmount, values.totalMonths]
-  )
+  const monthlyAmountPreview = useMemo(() => {
+    const monthlyAmount = Number(values.monthlyAmount)
+    if (monthlyAmount > 0) return monthlyAmount
+    return calculateMonthlyInstallment(Number(values.totalAmount), Number(values.totalMonths))
+  }, [values.monthlyAmount, values.totalAmount, values.totalMonths])
+
+  const totalAmountPreview = useMemo(() => {
+    const totalAmount = Number(values.totalAmount)
+    if (totalAmount > 0) return totalAmount
+    return calculateTotalAmount(Number(values.monthlyAmount), Number(values.totalMonths))
+  }, [values.totalAmount, values.monthlyAmount, values.totalMonths])
 
   const remainingPreview = useMemo(
     () => calculateRemainingInstallments(Number(values.totalMonths), Number(values.currentInstallmentNumber)),
@@ -122,13 +132,21 @@ export default function EditarMsiPage() {
   const validate = () => {
     if (!values.description.trim()) return fail('Ingresa una descripción para el MSI.'), false
     if (!values.categoryId) return fail('Selecciona una categoría para el MSI.'), false
-    if (!values.totalAmount || Number(values.totalAmount) <= 0) return fail('Ingresa un monto total válido.'), false
     if (!values.totalMonths || Number(values.totalMonths) <= 0) return fail('Ingresa los meses totales.'), false
+    if (totalAmountPreview <= 0) return fail('Ingresa un monto total o una mensualidad válida.'), false
+    if (monthlyAmountPreview <= 0) return fail('Ingresa una mensualidad o un monto total válido.'), false
+
+    if (Number(values.totalAmount) > 0 && Number(values.monthlyAmount) > 0) {
+      const expectedTotal = calculateTotalAmount(Number(values.monthlyAmount), Number(values.totalMonths))
+      if (Math.abs(expectedTotal - Number(values.totalAmount)) > 0.01) {
+        return fail('El monto total no coincide con la mensualidad y el número de meses.'), false
+      }
+    }
 
     const currentInstallment = Number(values.currentInstallmentNumber)
     const totalMonths = Number(values.totalMonths)
     if (!currentInstallment || currentInstallment < 1 || currentInstallment > totalMonths) {
-      return fail('La mensualidad actual debe estar entre 1 y el total de meses.'), false
+      return fail('La próxima mensualidad debe estar entre 1 y el total de meses.'), false
     }
 
     if (!values.chargeDay || Number(values.chargeDay) < 1 || Number(values.chargeDay) > 31) {
@@ -146,7 +164,7 @@ export default function EditarMsiPage() {
 
     if (!validate()) return
 
-    const totalAmount = Number(values.totalAmount)
+    const totalAmount = totalAmountPreview
     const totalMonths = Number(values.totalMonths)
     const currentInstallmentNumber = Number(values.currentInstallmentNumber)
     const chargeDay = Number(values.chargeDay)
@@ -164,7 +182,7 @@ export default function EditarMsiPage() {
         description: values.description.trim(),
         category_id: values.categoryId,
         total_amount: totalAmount,
-        monthly_amount: calculateMonthlyInstallment(totalAmount, totalMonths),
+        monthly_amount: monthlyAmountPreview,
         total_months: totalMonths,
         current_installment_number: currentInstallmentNumber,
         remaining_installments: Math.max(0, totalMonths - nextLastProcessedInstallmentNumber),
@@ -238,6 +256,7 @@ export default function EditarMsiPage() {
           values={values}
           categories={categories}
           monthlyAmountPreview={monthlyAmountPreview}
+          totalAmountPreview={totalAmountPreview}
           remainingInstallmentsPreview={remainingPreview}
           onChange={onChange}
           onSubmit={handleSubmit}

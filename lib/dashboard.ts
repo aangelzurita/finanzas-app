@@ -1,5 +1,5 @@
 import { formatMoney } from '@/lib/utils'
-import type { CreditCardInstallment } from '@/lib/credit-card-installments'
+import { getInstallmentDisplayState, type CreditCardInstallment } from '@/lib/credit-card-installments'
 import type { RecurringCharge } from '@/lib/recurring-charges'
 
 export type Account = {
@@ -45,6 +45,7 @@ export type Budget = {
 export type CreditCard = {
   id: string
   name: string
+  current_balance: number
   payment_due_day: number
   statement_cutoff_day: number
   minimum_payment: number
@@ -137,7 +138,7 @@ export function buildDashboardMetrics(
   getPendingInstallmentAmount: (plan: CreditCardInstallment) => number
 ) {
   const disponible = accounts
-    .filter((account) => ['cash', 'debit', 'savings'].includes(account.account_type))
+    .filter((account) => ['cash', 'debit'].includes(account.account_type))
     .reduce((acc, account) => acc + Number(account.current_balance || 0), 0)
 
   const deuda = accounts
@@ -167,7 +168,6 @@ export function buildDashboardMetrics(
     totalExpense,
     fixedExpense,
     monthInstallments,
-    flow: totalIncome - totalExpense - fixedExpense - monthInstallments,
     totalBudget,
     totalBudgetSpent,
     totalBudgetRemaining,
@@ -177,7 +177,10 @@ export function buildDashboardMetrics(
 
 export function buildUpcomingCardPayments(cards: CreditCard[]) {
   return cards
-    .filter((card) => Number(card.minimum_payment || 0) > 0 || Number(card.no_interest_payment || 0) > 0)
+    .filter((card) =>
+      Number(card.current_balance || 0) > 0 &&
+      (Number(card.minimum_payment || 0) > 0 || Number(card.no_interest_payment || 0) > 0)
+    )
     .map((card) => ({
       ...card,
       dueDate: nextDateForDay(card.payment_due_day),
@@ -203,14 +206,18 @@ export function buildConsolidatedCommitments(
     meta: 'Recordatorio',
   }))
 
-  const installmentItems: CommitmentItem[] = monthInstallmentPlans.map((plan) => ({
-    id: `installment-${plan.id}`,
-    title: plan.description,
-    dueDate: new Date(new Date().getFullYear(), new Date().getMonth(), plan.charge_day, 9, 0, 0, 0).toISOString(),
-    amount: Number(plan.monthly_amount || 0),
-    tone: 'sky',
-    meta: `MSI ${plan.current_installment_number}/${plan.total_months}`,
-  }))
+  const installmentItems: CommitmentItem[] = monthInstallmentPlans.map((plan) => {
+    const displayState = getInstallmentDisplayState(plan)
+
+    return {
+      id: `installment-${plan.id}`,
+      title: plan.description,
+      dueDate: new Date(new Date().getFullYear(), new Date().getMonth(), plan.charge_day, 9, 0, 0, 0).toISOString(),
+      amount: Number(plan.monthly_amount || 0),
+      tone: 'sky',
+      meta: `MSI próxima ${displayState.currentInstallmentNumber}/${plan.total_months}`,
+    }
+  })
 
   const recurringItems: CommitmentItem[] = dueRecurringCharges.map((charge) => ({
     id: `recurring-${charge.id}`,

@@ -156,7 +156,7 @@ export default function TarjetasPage() {
 
   const getUsagePercent = (balance: number, limit: number) => {
     if (!limit || limit <= 0) return 0
-    return (balance / limit) * 100
+    return (Math.max(0, balance) / limit) * 100
   }
 
   const getUsageColor = (percent: number) => {
@@ -207,7 +207,7 @@ export default function TarjetasPage() {
       )
 
       const available =
-        Number(card.credit_limit || 0) - Number(card.current_balance || 0)
+        Number(card.credit_limit || 0) - Math.max(0, Number(card.current_balance || 0))
 
       const daysToCutoff = daysUntilDayOfMonth(card.statement_cutoff_day)
       const daysToPayment = daysUntilDayOfMonth(card.payment_due_day)
@@ -280,7 +280,7 @@ export default function TarjetasPage() {
 
   const summary = useMemo(() => {
     const totalLimit = cards.reduce((acc, c) => acc + Number(c.credit_limit || 0), 0)
-    const totalUsed = cards.reduce((acc, c) => acc + Number(c.current_balance || 0), 0)
+    const totalUsed = cards.reduce((acc, c) => acc + Math.max(0, Number(c.current_balance || 0)), 0)
     const totalAvailable = totalLimit - totalUsed
 
     return {
@@ -454,7 +454,11 @@ export default function TarjetasPage() {
                 )}
 
                 <div className="grid grid-cols-2 gap-4 mb-8">
-                  <MiniStat label="Saldo usado" value={formatMoney(Number(card.current_balance || 0))} valueClassName="text-rose-600 font-bold" />
+                  <MiniStat
+                    label={Number(card.current_balance || 0) < 0 ? 'Saldo a favor' : 'Saldo usado'}
+                    value={formatMoney(Math.abs(Number(card.current_balance || 0)))}
+                    valueClassName={Number(card.current_balance || 0) < 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}
+                  />
                   <MiniStat label="Disponible" value={formatMoney(available)} valueClassName="text-emerald-600 font-black" />
                   <MiniStat label="Línea total" value={formatMoney(Number(card.credit_limit || 0))} />
                   <MiniStat label="% de uso" value={`${usagePercent.toFixed(1)}%`} />

@@ -22,6 +22,7 @@ type TransactionRow = {
   category_id: string | null
   related_credit_card_id: string | null
   related_debt_id: string | null
+  affects_balance: boolean | null
   status: string
 }
 
@@ -66,7 +67,7 @@ export default function MovimientosPage() {
       supabase
         .from('transactions')
         .select(
-          'id, transaction_type, amount, description, transaction_date, source_account_id, destination_account_id, category_id, related_credit_card_id, related_debt_id, status'
+          'id, transaction_type, amount, description, transaction_date, source_account_id, destination_account_id, category_id, related_credit_card_id, related_debt_id, affects_balance, status'
         )
         .order('transaction_date', { ascending: false }),
       supabase
@@ -104,7 +105,7 @@ export default function MovimientosPage() {
       const matchesTo = dateTo ? txDate <= dateTo : true
 
       return matchesType && matchesAccount && matchesFrom && matchesTo
-    })
+    }).sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
   }, [transactions, typeFilter, accountFilter, dateFrom, dateTo])
 
   const accountLabel = (id: string | null) => {
@@ -130,7 +131,7 @@ export default function MovimientosPage() {
 
     const { data: txData, error: txError } = await supabase
       .from('transactions')
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
       .eq('id', id)
       .single()
 
@@ -224,6 +225,7 @@ export default function MovimientosPage() {
                 <option value="transfer">Transferencia</option>
                 <option value="credit_card_purchase">Compra con TDC</option>
                 <option value="credit_card_payment">Pago de TDC</option>
+                <option value="credit_card_refund">Reembolso TDC</option>
                 <option value="debt_payment">Pago de deuda</option>
               </select>
             </div>
@@ -318,7 +320,14 @@ export default function MovimientosPage() {
                     </td>
 
                     <td className="px-5 py-4 text-sm text-slate-900 font-medium">
-                      {tx.description || 'Sin descripción'}
+                      <div>
+                        <p>{tx.description || 'Sin descripción'}</p>
+                        {tx.affects_balance === false ? (
+                          <p className="mt-1 text-xs font-bold uppercase tracking-wider text-amber-600">
+                            Ya incluido en saldo
+                          </p>
+                        ) : null}
+                      </div>
                     </td>
 
                     <td className="px-5 py-4 text-sm text-slate-700">

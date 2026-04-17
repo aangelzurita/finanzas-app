@@ -6,6 +6,7 @@ export type CreditCardInstallment = {
   id: string
   user_id: string
   credit_card_id: string
+  purchase_transaction_id?: string | null
   category_id: string | null
   description: string
   total_amount: number
@@ -21,6 +22,21 @@ export type CreditCardInstallment = {
   status: CreditCardInstallmentStatus
   created_at?: string
   updated_at?: string
+}
+
+export type InstallmentPlanDraft = {
+  userId: string
+  creditCardId: string
+  purchaseTransactionId?: string | null
+  categoryId: string
+  description: string
+  totalAmount: number
+  monthlyAmount: number
+  totalMonths: number
+  currentInstallmentNumber: number
+  chargeDay: number
+  startDate?: string
+  notes?: string | null
 }
 
 function safeDayForMonth(year: number, month: number, day: number) {
@@ -107,8 +123,50 @@ export function calculateMonthlyInstallment(totalAmount: number, totalMonths: nu
   return Number((totalAmount / totalMonths).toFixed(2))
 }
 
+export function calculateTotalAmount(monthlyAmount: number, totalMonths: number) {
+  if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0 || !Number.isInteger(totalMonths) || totalMonths <= 0) {
+    return 0
+  }
+
+  return Number((monthlyAmount * totalMonths).toFixed(2))
+}
+
 export function calculateRemainingInstallments(totalMonths: number, currentInstallmentNumber: number) {
   return Math.max(0, totalMonths - (currentInstallmentNumber - 1))
+}
+
+export function getOutstandingInstallmentCount(
+  plan: Pick<CreditCardInstallment, 'total_months' | 'current_installment_number' | 'last_processed_installment_number'>
+) {
+  const totalMonths = Number(plan.total_months || 0)
+  const lastProcessed = getLastProcessedInstallmentNumber(plan)
+  return Math.max(0, totalMonths - lastProcessed)
+}
+
+export function getInstallmentDisplayState(
+  plan: Pick<
+    CreditCardInstallment,
+    'status' | 'total_months' | 'current_installment_number' | 'last_processed_installment_number'
+  >
+) {
+  if (plan.status === 'completed') {
+    return {
+      currentInstallmentNumber: Number(plan.total_months || 0),
+      remainingInstallments: 0,
+    }
+  }
+
+  const totalMonths = Number(plan.total_months || 0)
+  const lastProcessed = getLastProcessedInstallmentNumber(plan)
+  const nextInstallment = Math.min(
+    totalMonths,
+    Math.max(Number(plan.current_installment_number || 1), lastProcessed + (lastProcessed < totalMonths ? 1 : 0))
+  )
+
+  return {
+    currentInstallmentNumber: nextInstallment,
+    remainingInstallments: Math.max(0, totalMonths - nextInstallment),
+  }
 }
 
 export function inferInstallmentStartDate(
@@ -119,6 +177,70 @@ export function inferInstallmentStartDate(
   const currentChargeDate = buildDate(referenceDate.getFullYear(), referenceDate.getMonth(), chargeDay)
   currentChargeDate.setMonth(currentChargeDate.getMonth() - (currentInstallmentNumber - 1))
   return formatISODate(currentChargeDate)
+}
+
+export function validateInstallmentDraft(draft: {
+  categoryId: string
+  totalAmount: number
+  monthlyAmount: number
+  totalMonths: number
+  currentInstallmentNumber: number
+  chargeDay: number
+}) {
+  if (!draft.categoryId) return 'Selecciona una categoría para el MSI.'
+  if (!Number.isFinite(draft.totalAmount) || draft.totalAmount <= 0) return 'Ingresa un monto total válido para el MSI.'
+  if (!Number.isFinite(draft.monthlyAmount) || draft.monthlyAmount <= 0) return 'Ingresa una mensualidad válida para el MSI.'
+  if (!Number.isInteger(draft.totalMonths) || draft.totalMonths <= 0) return 'Ingresa los meses totales del MSI.'
+  if (
+    !Number.isInteger(draft.currentInstallmentNumber) ||
+    draft.currentInstallmentNumber < 1 ||
+    draft.currentInstallmentNumber > draft.totalMonths
+  ) {
+    return 'La próxima mensualidad debe estar entre 1 y el total de meses.'
+  }
+  if (!Number.isInteger(draft.chargeDay) || draft.chargeDay < 1 || draft.chargeDay > 31) {
+    return 'Ingresa un día de cargo válido entre 1 y 31.'
+  }
+  return null
+}
+
+export function buildInstallmentInsertPayload(draft: InstallmentPlanDraft) {
+  return {
+    user_id: draft.userId,
+    credit_card_id: draft.creditCardId,
+    purchase_transaction_id: draft.purchaseTransactionId ?? null,
+    category_id: draft.categoryId,
+    description: draft.description.trim(),
+    total_amount: draft.totalAmount,
+    monthly_amount: draft.monthlyAmount,
+    total_months: draft.totalMonths,
+    current_installment_number: draft.currentInstallmentNumber,
+    remaining_installments: calculateRemainingInstallments(draft.totalMonths, draft.currentInstallmentNumber),
+    last_processed_installment_number: Math.max(0, draft.currentInstallmentNumber - 1),
+    charge_day: draft.chargeDay,
+    start_date: draft.startDate || inferInstallmentStartDate(draft.currentInstallmentNumber, draft.chargeDay),
+    last_charge_date: null,
+    notes: draft.notes?.trim() || null,
+    status: 'active' as const,
+  }
+}
+
+export async function createInstallmentPlan(
+  supabase: SupabaseClient,
+  draft: InstallmentPlanDraft
+) {
+  const payload = buildInstallmentInsertPayload(draft)
+  const { data, error } = await supabase
+    .from('credit_card_installments')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || 'No se pudo guardar el MSI.')
+  }
+
+  return data as CreditCardInstallment
 }
 
 export function deriveInstallmentState(
@@ -221,6 +343,10 @@ async function ensureInstallmentTransaction(
   cardAccountId: string,
   installmentNumber: number
 ) {
+  if (plan.purchase_transaction_id) {
+    return null
+  }
+
   const { data: existing, error: existingError } = await supabase
     .from('transactions')
     .select('id')
@@ -273,6 +399,10 @@ export async function processInstallmentPlanCharges(
 ) {
   if (plan.status !== 'active') {
     return plan
+  }
+
+  if (plan.purchase_transaction_id) {
+    return syncInstallmentPlan(supabase, plan, referenceDate)
   }
 
   const dueNumber = getInstallmentDueNumber(plan, referenceDate)

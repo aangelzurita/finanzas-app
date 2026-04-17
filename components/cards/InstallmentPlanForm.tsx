@@ -6,6 +6,7 @@ type InstallmentPlanValues = {
   description: string
   categoryId: string
   totalAmount: string
+  monthlyAmount: string
   totalMonths: string
   currentInstallmentNumber: string
   chargeDay: string
@@ -26,6 +27,7 @@ interface InstallmentPlanFormProps {
   values: InstallmentPlanValues
   categories: CategoryOption[]
   monthlyAmountPreview: number
+  totalAmountPreview: number
   remainingInstallmentsPreview: number
   onChange: (field: keyof InstallmentPlanValues, value: string) => void
   onSubmit: (e: React.FormEvent) => void
@@ -42,6 +44,7 @@ export function InstallmentPlanForm({
   values,
   categories,
   monthlyAmountPreview,
+  totalAmountPreview,
   remainingInstallmentsPreview,
   onChange,
   onSubmit,
@@ -85,7 +88,7 @@ export function InstallmentPlanForm({
           </Field>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Field label="Monto total">
+            <Field label="Monto total" helper="Si no lo tienes, captura la mensualidad y calculamos el total.">
               <div className="relative">
                 <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                 <input
@@ -112,7 +115,21 @@ export function InstallmentPlanForm({
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Field label="Mensualidad actual">
+            <Field label="Mensualidad">
+              <div className="relative">
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 pl-10 pr-5 py-4 font-black text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all"
+                  placeholder="0.00"
+                  value={values.monthlyAmount}
+                  onChange={(e) => onChange('monthlyAmount', e.target.value)}
+                />
+              </div>
+            </Field>
+
+            <Field label="Próxima mensualidad" helper="Si ya pagaste 5, aquí va 6.">
               <input
                 type="number"
                 min="1"
@@ -137,7 +154,7 @@ export function InstallmentPlanForm({
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Field label="Fecha de inicio (opcional)" helper="Si la dejas vacía, se infiere según la mensualidad actual.">
+            <Field label="Fecha de inicio (opcional)" helper="Si la dejas vacía, se infiere según la próxima mensualidad.">
               <input
                 type="date"
                 className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all"
@@ -159,7 +176,7 @@ export function InstallmentPlanForm({
                 </select>
               </Field>
             ) : (
-              <Field label="Meses restantes">
+              <Field label="Mensualidades pendientes">
                 <div className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-black text-slate-900">
                   {remainingInstallmentsPreview}
                 </div>
@@ -168,13 +185,19 @@ export function InstallmentPlanForm({
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
+            <Field label="Total calculado">
+              <div className="w-full rounded-2xl border-2 border-sky-100 bg-sky-50/60 px-5 py-4 font-black text-sky-700">
+                ${totalAmountPreview.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </Field>
+
             <Field label="Mensualidad calculada">
               <div className="w-full rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 px-5 py-4 font-black text-emerald-700">
                 ${monthlyAmountPreview.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </Field>
 
-            <Field label="Meses restantes">
+            <Field label="Mensualidades pendientes">
               <div className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-black text-slate-900">
                 {remainingInstallmentsPreview}
               </div>

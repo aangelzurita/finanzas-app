@@ -117,6 +117,7 @@ export default function EditarTarjetaPage() {
       .update({
         name: parsedData.name,
         institution: parsedData.bank,
+        initial_balance: parsedData.current_balance,
         current_balance: parsedData.current_balance,
       })
       .eq('id', accountId)

@@ -58,6 +58,7 @@ export const friendlyTransactionType = (type: string) => {
         transfer: 'Transferencia',
         credit_card_purchase: 'Compra con TDC',
         credit_card_payment: 'Pago de TDC',
+        credit_card_refund: 'Reembolso TDC',
         debt_payment: 'Pago de deuda',
     }
     return map[type] || type

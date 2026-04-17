@@ -9,6 +9,13 @@ import {
   prepareTransactionForPersistence,
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
+import {
+  calculateMonthlyInstallment,
+  calculateTotalAmount,
+  createInstallmentPlan,
+  type CreditCardInstallment,
+  validateInstallmentDraft,
+} from '@/lib/credit-card-installments'
 
 type CreditCard = {
   id: string
@@ -29,7 +36,7 @@ type Account = {
   account_type: string
 }
 
-type MovementType = 'credit_card_purchase' | 'credit_card_payment'
+type MovementType = 'credit_card_purchase' | 'credit_card_payment' | 'credit_card_refund'
 
 export default function TarjetaMovimientoPage() {
   const supabase = createClient()
@@ -48,6 +55,7 @@ export default function TarjetaMovimientoPage() {
   const [card, setCard] = useState<CreditCard | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [installments, setInstallments] = useState<CreditCardInstallment[]>([])
 
   const [movementType, setMovementType] = useState<MovementType>(initialType)
   const [amount, setAmount] = useState('')
@@ -55,6 +63,17 @@ export default function TarjetaMovimientoPage() {
   const [transactionDate, setTransactionDate] = useState('')
   const [sourceAccountId, setSourceAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [affectsBalance, setAffectsBalance] = useState(true)
+  const [isMsi, setIsMsi] = useState(false)
+  const [installmentDescription, setInstallmentDescription] = useState('')
+  const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
+  const [installmentTotalMonths, setInstallmentTotalMonths] = useState('')
+  const [installmentCurrentNumber, setInstallmentCurrentNumber] = useState('1')
+  const [installmentChargeDay, setInstallmentChargeDay] = useState('')
+  const [installmentStartDate, setInstallmentStartDate] = useState('')
+  const [installmentNotes, setInstallmentNotes] = useState('')
+  const [relatedInstallmentId, setRelatedInstallmentId] = useState('')
+  const [cancelRemainingInstallments, setCancelRemainingInstallments] = useState(true)
 
   async function initialize() {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -68,6 +87,7 @@ export default function TarjetaMovimientoPage() {
       { data: cardData, error: cardError },
       { data: categoriesData, error: categoriesError },
       { data: accountsData, error: accountsError },
+      { data: installmentData, error: installmentError },
     ] = await Promise.all([
       supabase
         .from('credit_cards')
@@ -86,13 +106,20 @@ export default function TarjetaMovimientoPage() {
         .in('account_type', ['cash', 'debit', 'savings'])
         .eq('is_active', true)
         .order('name'),
+      supabase
+        .from('credit_card_installments')
+        .select('*')
+        .eq('credit_card_id', cardId)
+        .eq('status', 'active')
+        .order('charge_day'),
     ])
 
-    if (cardError || categoriesError || accountsError || !cardData) {
+    if (cardError || categoriesError || accountsError || installmentError || !cardData) {
       setMessage(
         cardError?.message ||
         categoriesError?.message ||
         accountsError?.message ||
+        installmentError?.message ||
         'No se pudo cargar la información'
       )
       setMessageType('error')
@@ -103,6 +130,7 @@ export default function TarjetaMovimientoPage() {
     setCard(cardData as CreditCard)
     setCategories((categoriesData as Category[]) ?? [])
     setAccounts((accountsData as Account[]) ?? [])
+    setInstallments((installmentData as CreditCardInstallment[]) ?? [])
     setLoading(false)
   }
 
@@ -124,8 +152,25 @@ export default function TarjetaMovimientoPage() {
     [categories]
   )
 
+  const installmentMonthlyAmountPreview = useMemo(() => {
+    const monthlyAmount = Number(installmentMonthlyAmount)
+    if (monthlyAmount > 0) return monthlyAmount
+    return calculateMonthlyInstallment(Number(amount), Number(installmentTotalMonths))
+  }, [installmentMonthlyAmount, amount, installmentTotalMonths])
+
+  const installmentTotalAmountPreview = useMemo(() => {
+    const totalAmount = Number(amount)
+    if (totalAmount > 0) return totalAmount
+    return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+  }, [amount, installmentMonthlyAmount, installmentTotalMonths])
+
   const validate = () => {
-    if (!amount || Number(amount) <= 0) {
+    const parsedAmount =
+      isMsi && movementType === 'credit_card_purchase'
+        ? installmentTotalAmountPreview
+        : Number(amount)
+
+    if (!parsedAmount || parsedAmount <= 0) {
       fail('Ingresa un monto válido.')
       return false
     }
@@ -140,11 +185,42 @@ export default function TarjetaMovimientoPage() {
         fail('Selecciona una categoría.')
         return false
       }
+
+      if (isMsi) {
+        const installmentValidation = validateInstallmentDraft({
+          categoryId,
+          totalAmount: installmentTotalAmountPreview,
+          monthlyAmount: installmentMonthlyAmountPreview,
+          totalMonths: Number(installmentTotalMonths),
+          currentInstallmentNumber: Number(installmentCurrentNumber),
+          chargeDay: Number(installmentChargeDay),
+        })
+
+        if (installmentValidation) {
+          fail(installmentValidation)
+          return false
+        }
+
+        if (Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
+          const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+          if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
+            fail('El monto total no coincide con la mensualidad y el número de meses del MSI.')
+            return false
+          }
+        }
+      }
     }
 
     if (movementType === 'credit_card_payment') {
       if (!sourceAccountId) {
         fail('Selecciona la cuenta desde la que pagas.')
+        return false
+      }
+    }
+
+    if (movementType === 'credit_card_refund') {
+      if (cancelRemainingInstallments && !relatedInstallmentId) {
+        fail('Selecciona el MSI que quieres cancelar con el reembolso.')
         return false
       }
     }
@@ -170,11 +246,12 @@ export default function TarjetaMovimientoPage() {
 
     const preparedTx = await prepareTransactionForPersistence(supabase, {
       transaction_type: movementType,
-      amount: Number(amount),
+      amount: isMsi && movementType === 'credit_card_purchase' ? installmentTotalAmountPreview : Number(amount),
       source_account_id: movementType === 'credit_card_payment' ? sourceAccountId : card.account_id,
       destination_account_id: null,
       related_credit_card_id: card.id,
       related_debt_id: null,
+      affects_balance: affectsBalance,
     })
 
     const payload: Record<string, unknown> = {
@@ -185,11 +262,13 @@ export default function TarjetaMovimientoPage() {
       description: description || null,
       related_credit_card_id: card.id,
       status: 'completed',
+      affects_balance: affectsBalance,
       affects_budget: movementType === 'credit_card_purchase',
       source_account_id: null,
       destination_account_id: null,
       category_id: null,
       related_debt_id: null,
+      related_installment_id: null,
     }
 
     if (movementType === 'credit_card_purchase') {
@@ -203,10 +282,14 @@ export default function TarjetaMovimientoPage() {
       payload.applied_to_no_interest_payment = preparedTx.applied_to_no_interest_payment ?? 0
     }
 
+    if (movementType === 'credit_card_refund') {
+      payload.related_installment_id = relatedInstallmentId || null
+    }
+
     const { data: insertedTx, error } = await supabase
       .from('transactions')
       .insert(payload)
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, related_installment_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
       .single()
 
     if (error || !insertedTx) {
@@ -216,6 +299,38 @@ export default function TarjetaMovimientoPage() {
 
     try {
       await applyTransactionMetadata(supabase, insertedTx as TransactionLedgerEntry)
+
+      if (movementType === 'credit_card_purchase' && isMsi) {
+        await createInstallmentPlan(supabase, {
+          userId,
+          creditCardId: card.id,
+          purchaseTransactionId: insertedTx.id,
+          categoryId,
+          description: installmentDescription.trim() || description.trim() || 'Compra MSI',
+          totalAmount: installmentTotalAmountPreview,
+          monthlyAmount: installmentMonthlyAmountPreview,
+          totalMonths: Number(installmentTotalMonths),
+          currentInstallmentNumber: Number(installmentCurrentNumber),
+          chargeDay: Number(installmentChargeDay),
+          startDate: installmentStartDate || undefined,
+          notes: installmentNotes,
+        })
+      }
+
+      if (movementType === 'credit_card_refund' && cancelRemainingInstallments && relatedInstallmentId) {
+        const { error: cancelError } = await supabase
+          .from('credit_card_installments')
+          .update({
+            status: 'canceled',
+            remaining_installments: 0,
+            last_charge_date: new Date(transactionDate).toISOString().slice(0, 10),
+          })
+          .eq('id', relatedInstallmentId)
+
+        if (cancelError) {
+          throw new Error(cancelError.message)
+        }
+      }
     } catch (impactError) {
       await supabase.from('transactions').delete().eq('id', insertedTx.id)
       fail(impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.')
@@ -225,7 +340,9 @@ export default function TarjetaMovimientoPage() {
     setMessage(
       movementType === 'credit_card_purchase'
         ? 'Compra registrada correctamente.'
-        : 'Pago registrado correctamente.'
+        : movementType === 'credit_card_payment'
+          ? 'Pago registrado correctamente.'
+          : 'Reembolso registrado correctamente.'
     )
     setMessageType('success')
 
@@ -274,7 +391,11 @@ export default function TarjetaMovimientoPage() {
                 <Link href={`/tarjetas/${card.id}`} className="hover:text-white transition">{card.name}</Link>
               </nav>
               <h1 className="text-4xl font-bold tracking-tight">
-                {movementType === 'credit_card_purchase' ? 'Registrar compra' : 'Registrar pago'}
+                {movementType === 'credit_card_purchase'
+                  ? 'Registrar compra'
+                  : movementType === 'credit_card_payment'
+                    ? 'Registrar pago'
+                    : 'Registrar reembolso'}
               </h1>
               <p className="text-slate-400 mt-2 text-lg">
                 Movimiento para <span className="text-white font-bold">{card.name}</span>
@@ -307,10 +428,14 @@ export default function TarjetaMovimientoPage() {
                 <select
                   className="form-input"
                   value={movementType}
-                  onChange={(e) => setMovementType(e.target.value as MovementType)}
+                  onChange={(e) => {
+                    setMovementType(e.target.value as MovementType)
+                    setIsMsi(false)
+                  }}
                 >
                   <option value="credit_card_purchase">Compra con TDC</option>
                   <option value="credit_card_payment">Pago de TDC</option>
+                  <option value="credit_card_refund">Reembolso TDC</option>
                 </select>
               </FormField>
 
@@ -320,6 +445,7 @@ export default function TarjetaMovimientoPage() {
                   <input
                     type="number"
                     step="0.01"
+                    required={!isMsi || movementType !== 'credit_card_purchase'}
                     className={`form-input pl-8 font-mono ${movementType === 'credit_card_payment' ? 'text-emerald-600 font-bold' : 'text-slate-900 font-bold'}`}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -339,20 +465,119 @@ export default function TarjetaMovimientoPage() {
             </FormField>
 
             {movementType === 'credit_card_purchase' && (
-              <FormField label="Categoría" helper="Ayuda a clasificar tus gastos">
-                <select
-                  className="form-input"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                >
-                  <option value="">Selecciona una categoría</option>
-                  {expenseCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+              <>
+                <FormField label="Categoría" helper="Ayuda a clasificar tus gastos">
+                  <select
+                    className="form-input"
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                  >
+                    <option value="">Selecciona una categoría</option>
+                    {expenseCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+
+                <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                    checked={isMsi}
+                    onChange={(e) => setIsMsi(e.target.checked)}
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Es compra a MSI</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Guarda la compra y crea el plan MSI automáticamente.
+                    </p>
+                  </div>
+                </label>
+
+                {isMsi ? (
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <FormField label="Meses totales">
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input"
+                        value={installmentTotalMonths}
+                        onChange={(e) => setInstallmentTotalMonths(e.target.value)}
+                        placeholder="12"
+                      />
+                    </FormField>
+
+                    <FormField label="Mensualidad">
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-input"
+                        value={installmentMonthlyAmount}
+                        onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </FormField>
+
+                    <FormField label="Próxima mensualidad">
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input"
+                        value={installmentCurrentNumber}
+                        onChange={(e) => setInstallmentCurrentNumber(e.target.value)}
+                        placeholder="1"
+                      />
+                    </FormField>
+
+                    <FormField label="Día de cargo">
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        className="form-input"
+                        value={installmentChargeDay}
+                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
+                        placeholder="15"
+                      />
+                    </FormField>
+
+                    <FormField label="Fecha de inicio">
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={installmentStartDate}
+                        onChange={(e) => setInstallmentStartDate(e.target.value)}
+                      />
+                    </FormField>
+
+                    <FormField label="Descripción MSI">
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={installmentDescription}
+                        onChange={(e) => setInstallmentDescription(e.target.value)}
+                        placeholder="Si la dejas vacía, usamos la descripción de la compra"
+                      />
+                    </FormField>
+
+                    <div className="md:col-span-2 rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 text-sm font-bold text-slate-700">
+                      Total calculado: {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} · Mensualidad: {installmentMonthlyAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                    </div>
+
+                    <FormField label="Notas MSI">
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={installmentNotes}
+                        onChange={(e) => setInstallmentNotes(e.target.value)}
+                        placeholder="Promoción, referencia o detalle del plan"
+                      />
+                    </FormField>
+                  </div>
+                ) : null}
+              </>
             )}
 
             {movementType === 'credit_card_payment' && (
@@ -372,6 +597,40 @@ export default function TarjetaMovimientoPage() {
               </FormField>
             )}
 
+            {movementType === 'credit_card_refund' && (
+              <>
+                <FormField label="MSI relacionado (opcional)" helper="Úsalo si el reembolso corresponde a una compra MSI">
+                  <select
+                    className="form-input"
+                    value={relatedInstallmentId}
+                    onChange={(e) => setRelatedInstallmentId(e.target.value)}
+                  >
+                    <option value="">Sin MSI relacionado</option>
+                    {installments.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.description} ({plan.current_installment_number}/{plan.total_months})
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+
+                <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                    checked={cancelRemainingInstallments}
+                    onChange={(e) => setCancelRemainingInstallments(e.target.checked)}
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Cancelar mensualidades restantes del MSI</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Actívalo cuando el comercio devolvió por completo la compra y ya no deben seguir corriendo mensualidades.
+                    </p>
+                  </div>
+                </label>
+              </>
+            )}
+
             <FormField label="Descripción">
               <input
                 type="text"
@@ -381,13 +640,29 @@ export default function TarjetaMovimientoPage() {
                 placeholder="Ej. Súper, Gasolina, Pago mensual..."
               />
             </FormField>
+
+            <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+              <input
+                type="checkbox"
+                className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                checked={affectsBalance}
+                onChange={(e) => setAffectsBalance(e.target.checked)}
+              />
+              <div>
+                <p className="text-sm font-bold text-slate-900">Impactar saldo y pendientes de la tarjeta</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Desactívalo para capturar compras, pagos o reembolsos históricos que ya venían reflejados en el saldo usado,
+                  pago mínimo o para no generar intereses.
+                </p>
+              </div>
+            </label>
           </div>
 
           <div className="mt-12 flex flex-col gap-4">
             <button
               type="submit"
               disabled={saving}
-              className={`w-full rounded-2xl py-4 font-bold text-lg shadow-lg hover:shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 ${movementType === 'credit_card_payment' ? 'bg-sky-600 hover:bg-sky-700 text-white' : 'bg-slate-900 hover:bg-black text-white'
+              className={`w-full rounded-2xl py-4 font-bold text-lg shadow-lg hover:shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 ${movementType === 'credit_card_payment' ? 'bg-sky-600 hover:bg-sky-700 text-white' : movementType === 'credit_card_refund' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-slate-900 hover:bg-black text-white'
                 }`}
             >
               {saving ? 'Guardando...' : 'Registrar movimiento'}

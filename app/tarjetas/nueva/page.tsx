@@ -61,7 +61,7 @@ export default function NuevaTarjetaPage() {
         name: parsedData.name,
         account_type: 'credit_card',
         institution: parsedData.bank,
-        initial_balance: 0,
+        initial_balance: parsedData.current_balance,
         current_balance: parsedData.current_balance,
         currency_code: 'MXN',
         is_active: true,

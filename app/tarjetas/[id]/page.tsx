@@ -10,6 +10,8 @@ import { MiniStat } from '@/components/ui/MiniStat'
 import {
   getPendingInstallmentAmount,
   getPendingInstallmentCount,
+  getInstallmentDisplayState,
+  getOutstandingInstallmentCount,
   processInstallmentPlansForCard,
   syncInstallmentPlans,
   type CreditCardInstallment,
@@ -125,13 +127,18 @@ export default function TarjetaDetallePage() {
 
   const usagePercent = useMemo(() => {
     if (!card?.credit_limit || card.credit_limit <= 0) return 0
-    return (Number(card.current_balance || 0) / Number(card.credit_limit || 0)) * 100
+    return (Math.max(0, Number(card.current_balance || 0)) / Number(card.credit_limit || 0)) * 100
   }, [card])
 
   const available = useMemo(() => {
     if (!card) return 0
-    return Number(card.credit_limit || 0) - Number(card.current_balance || 0)
+    return Number(card.credit_limit || 0) - Math.max(0, Number(card.current_balance || 0))
   }, [card])
+
+  const currentBalanceValue = useMemo(() => Number(card?.current_balance || 0), [card])
+  const hasCreditBalance = currentBalanceValue < 0
+  const balanceTitle = hasCreditBalance ? 'Saldo a favor' : 'Saldo usado'
+  const balanceValueClassName = hasCreditBalance ? 'text-emerald-600' : 'text-rose-600'
 
   const totalPurchases = useMemo(() => {
     return transactions
@@ -146,8 +153,13 @@ export default function TarjetaDetallePage() {
   }, [transactions])
 
   const activeInstallments = useMemo(
-    () => installments.filter((plan) => plan.status === 'active' && plan.remaining_installments > 0),
+    () => installments.filter((plan) => plan.status === 'active' && getOutstandingInstallmentCount(plan) > 0),
     [installments]
+  )
+
+  const processableInstallments = useMemo(
+    () => activeInstallments.filter((plan) => !plan.purchase_transaction_id),
+    [activeInstallments]
   )
 
   const monthInstallmentProjection = useMemo(() => {
@@ -156,8 +168,8 @@ export default function TarjetaDetallePage() {
   }, [activeInstallments])
 
   const pendingInstallmentCharges = useMemo(() => {
-    return activeInstallments.reduce((acc, plan) => acc + getPendingInstallmentCount(plan), 0)
-  }, [activeInstallments])
+    return processableInstallments.reduce((acc, plan) => acc + getPendingInstallmentCount(plan), 0)
+  }, [processableInstallments])
 
   const handleProcessInstallments = async () => {
     if (!card || pendingInstallmentCharges === 0) return
@@ -166,7 +178,7 @@ export default function TarjetaDetallePage() {
     setMessage('')
 
     try {
-      await processInstallmentPlansForCard(supabase, activeInstallments, card.account_id)
+      await processInstallmentPlansForCard(supabase, processableInstallments, card.account_id)
       setMessage('MSI procesados correctamente. Ya se generaron los cargos reales pendientes.')
       await initialize()
     } catch (error) {
@@ -246,6 +258,13 @@ export default function TarjetaDetallePage() {
                 Registrar pago
               </Link>
 
+              <Link
+                href={`/tarjetas/${card.id}/movimiento?type=credit_card_refund`}
+                className="rounded-2xl bg-amber-500 hover:bg-amber-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95"
+              >
+                Registrar reembolso
+              </Link>
+
               <button
                 type="button"
                 onClick={handleProcessInstallments}
@@ -282,7 +301,7 @@ export default function TarjetaDetallePage() {
 
         <div className="grid gap-6 md:grid-cols-4 mb-8">
           <KpiCard title="Línea total" value={formatMoney(Number(card.credit_limit || 0))} valueClassName="text-slate-900" />
-          <KpiCard title="Saldo usado" value={formatMoney(Number(card.current_balance || 0))} valueClassName="text-rose-600" />
+          <KpiCard title={balanceTitle} value={formatMoney(Math.abs(currentBalanceValue))} valueClassName={balanceValueClassName} />
           <KpiCard title="Disponible" value={formatMoney(available)} valueClassName="text-emerald-600" />
           <KpiCard title="% de uso" value={`${usagePercent.toFixed(1)}%`} valueClassName={usagePercent > 80 ? 'text-rose-600' : 'text-slate-900'} />
         </div>
@@ -320,7 +339,7 @@ export default function TarjetaDetallePage() {
         <div className="grid gap-6 md:grid-cols-3 mb-8">
           <KpiCard title="Total Compras" value={formatMoney(totalPurchases)} valueClassName="text-slate-700" />
           <KpiCard title="Total Pagos" value={formatMoney(totalPayments)} valueClassName="text-emerald-600" />
-          <KpiCard title="MSI del mes" value={formatMoney(monthInstallmentProjection)} valueClassName="text-sky-600" />
+          <KpiCard title="MSI pendientes" value={formatMoney(monthInstallmentProjection)} valueClassName="text-sky-600" />
         </div>
 
         <div className="rounded-[2.5rem] border border-slate-100 bg-white shadow-xl overflow-hidden mb-8">
@@ -344,43 +363,51 @@ export default function TarjetaDetallePage() {
                 No hay compras MSI asociadas a esta tarjeta.
               </div>
             ) : (
-              installments.map((plan) => (
-                <div key={plan.id} className="px-8 py-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="font-extrabold text-slate-900">
-                      {plan.description} — {formatMoney(Number(plan.monthly_amount || 0))} ({plan.current_installment_number}/{plan.total_months})
-                    </p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Restan {plan.remaining_installments} mensualidades · Día {plan.charge_day}
-                    </p>
-                    {getPendingInstallmentCount(plan) > 0 ? (
-                      <p className="text-xs text-violet-600 font-bold mt-1">
-                        Pendientes por procesar: {getPendingInstallmentCount(plan)}
+              installments.map((plan) => {
+                const displayState = getInstallmentDisplayState(plan)
+
+                return (
+                  <div key={plan.id} className="px-8 py-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="font-extrabold text-slate-900">
+                        {plan.description} — {formatMoney(Number(plan.monthly_amount || 0))} (Próxima {displayState.currentInstallmentNumber}/{plan.total_months})
                       </p>
-                    ) : null}
-                    {plan.notes ? <p className="text-xs text-slate-400 mt-1">{plan.notes}</p> : null}
-                  </div>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Después de esta quedan {displayState.remainingInstallments} mensualidades · Día {plan.charge_day}
+                      </p>
+                      {plan.purchase_transaction_id ? (
+                        <p className="text-xs text-emerald-600 font-bold mt-1">
+                          Creado desde compra · sin procesamiento manual
+                        </p>
+                      ) : getPendingInstallmentCount(plan) > 0 ? (
+                        <p className="text-xs text-violet-600 font-bold mt-1">
+                          Pendientes por procesar: {getPendingInstallmentCount(plan)}
+                        </p>
+                      ) : null}
+                      {plan.notes ? <p className="text-xs text-slate-400 mt-1">{plan.notes}</p> : null}
+                    </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold border ${
-                      plan.status === 'active'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : plan.status === 'completed'
-                          ? 'bg-slate-100 text-slate-600 border-slate-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
-                      {plan.status === 'active' ? 'Activo' : plan.status === 'completed' ? 'Completado' : 'Cancelado'}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold border ${
+                        plan.status === 'active'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : plan.status === 'completed'
+                            ? 'bg-slate-100 text-slate-600 border-slate-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {plan.status === 'active' ? 'Activo' : plan.status === 'completed' ? 'Completado' : 'Cancelado'}
+                      </span>
 
-                    <Link
-                      href={`/tarjetas/${card.id}/msi/${plan.id}/editar`}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
-                    >
-                      Editar
-                    </Link>
+                      <Link
+                        href={`/tarjetas/${card.id}/msi/${plan.id}/editar`}
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
+                      >
+                        Editar
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>
@@ -420,8 +447,8 @@ export default function TarjetaDetallePage() {
                       {friendlyTransactionType(tx.transaction_type)}
                     </td>
 
-                    <td className={`px-8 py-5 text-sm font-black whitespace-nowrap ${tx.transaction_type === 'credit_card_payment' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                      {tx.transaction_type === 'credit_card_payment' ? '+ ' : '- '}
+                    <td className={`px-8 py-5 text-sm font-black whitespace-nowrap ${tx.transaction_type === 'credit_card_payment' || tx.transaction_type === 'credit_card_refund' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                      {tx.transaction_type === 'credit_card_payment' || tx.transaction_type === 'credit_card_refund' ? '+ ' : '- '}
                       {formatMoney(Number(tx.amount || 0))}
                     </td>
 

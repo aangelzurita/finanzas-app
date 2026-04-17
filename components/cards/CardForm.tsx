@@ -121,7 +121,7 @@ export function CardForm({
                             </div>
                         </FormField>
 
-                        <FormField label="Saldo usado actualmente">
+                        <FormField label="Saldo actual de la tarjeta" helper="Puede ser negativo si tienes saldo a favor por reembolsos o sobrepagos">
                             <div className="relative">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
                                 <input

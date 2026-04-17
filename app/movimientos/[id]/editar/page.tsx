@@ -41,6 +41,7 @@ type TransactionType =
   | 'transfer'
   | 'credit_card_purchase'
   | 'credit_card_payment'
+  | 'credit_card_refund'
   | 'debt_payment'
 
 export default function EditarMovimientoPage() {
@@ -69,6 +70,7 @@ export default function EditarMovimientoPage() {
   const [categoryId, setCategoryId] = useState('')
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
+  const [affectsBalance, setAffectsBalance] = useState(true)
   const [originalTransaction, setOriginalTransaction] = useState<(TransactionLedgerEntry & { id: string }) | null>(null)
 
   async function initialize() {
@@ -113,6 +115,7 @@ export default function EditarMovimientoPage() {
     setCategoryId(txData.category_id ?? '')
     setRelatedCreditCardId(txData.related_credit_card_id ?? '')
     setRelatedDebtId(txData.related_debt_id ?? '')
+    setAffectsBalance(txData.affects_balance ?? true)
     setOriginalTransaction({
       id: txData.id,
       transaction_type: txData.transaction_type,
@@ -121,6 +124,7 @@ export default function EditarMovimientoPage() {
       destination_account_id: txData.destination_account_id ?? null,
       related_credit_card_id: txData.related_credit_card_id ?? null,
       related_debt_id: txData.related_debt_id ?? null,
+      affects_balance: txData.affects_balance ?? true,
       applied_to_minimum_payment: txData.applied_to_minimum_payment ?? 0,
       applied_to_no_interest_payment: txData.applied_to_no_interest_payment ?? 0,
     })
@@ -204,6 +208,10 @@ export default function EditarMovimientoPage() {
       if (!relatedCreditCardId) return fail('Selecciona la tarjeta.'), false
     }
 
+    if (transactionType === 'credit_card_refund') {
+      if (!relatedCreditCardId) return fail('Selecciona la tarjeta del reembolso.'), false
+    }
+
     if (transactionType === 'debt_payment') {
       if (!sourceAccountId) return fail('Selecciona la cuenta desde la que pagas.'), false
       if (!relatedDebtId) return fail('Selecciona la deuda.'), false
@@ -233,6 +241,7 @@ export default function EditarMovimientoPage() {
       transaction_date: new Date(transactionDate).toISOString(),
       description: description || null,
       status: 'completed',
+      affects_balance: affectsBalance,
       affects_budget: ['expense', 'credit_card_purchase'].includes(transactionType),
       source_account_id: null,
       destination_account_id: null,
@@ -268,6 +277,10 @@ export default function EditarMovimientoPage() {
       payload.related_credit_card_id = relatedCreditCardId
     }
 
+    if (transactionType === 'credit_card_refund') {
+      payload.related_credit_card_id = relatedCreditCardId
+    }
+
     if (transactionType === 'debt_payment') {
       payload.source_account_id = sourceAccountId
       payload.related_debt_id = relatedDebtId
@@ -280,6 +293,7 @@ export default function EditarMovimientoPage() {
       destination_account_id: payload.destination_account_id as string | null,
       related_credit_card_id: payload.related_credit_card_id as string | null,
       related_debt_id: payload.related_debt_id as string | null,
+      affects_balance: affectsBalance,
     }, originalTransaction)
 
     payload.applied_to_minimum_payment = preparedNextTransaction.applied_to_minimum_payment ?? 0
@@ -304,7 +318,7 @@ export default function EditarMovimientoPage() {
       .from('transactions')
       .update(payload)
       .eq('id', transactionId)
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, applied_to_minimum_payment, applied_to_no_interest_payment')
+      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
       .single()
 
     if (error || !updatedTx) {
@@ -404,6 +418,7 @@ export default function EditarMovimientoPage() {
                 <option value="transfer">🔄 Transferencia</option>
                 <option value="credit_card_purchase">💳 Compra con TDC</option>
                 <option value="credit_card_payment">💰 Pago de TDC</option>
+                <option value="credit_card_refund">↩️ Reembolso TDC</option>
                 <option value="debt_payment">💸 Pago de Deuda</option>
               </select>
             </div>
@@ -599,6 +614,23 @@ export default function EditarMovimientoPage() {
               </>
             )}
 
+            {(transactionType === 'credit_card_refund') && (
+              <div className="col-span-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Tarjeta del reembolso</label>
+                <select
+                  required
+                  className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                  value={relatedCreditCardId}
+                  onChange={(e) => setRelatedCreditCardId(e.target.value)}
+                >
+                  <option value="">Selecciona tarjeta</option>
+                  {creditCards.map((card) => (
+                    <option key={card.id} value={card.id}>{card.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {(transactionType === 'debt_payment') && (
               <>
                 <div className="col-span-2 md:col-span-1">
@@ -631,6 +663,24 @@ export default function EditarMovimientoPage() {
                 </div>
               </>
             )}
+
+            <div className="col-span-2">
+              <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                  checked={affectsBalance}
+                  onChange={(e) => setAffectsBalance(e.target.checked)}
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Impactar saldos automáticamente</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Desactívalo si este movimiento ya venía incluido en el saldo actual. Lo mantenemos en historial
+                    sin volver a mover la cuenta, tarjeta o deuda.
+                  </p>
+                </div>
+              </label>
+            </div>
 
             <div className="col-span-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Descripción / Notas</label>
