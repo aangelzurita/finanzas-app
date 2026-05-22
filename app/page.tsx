@@ -254,10 +254,11 @@ export default function Home() {
     amber: 'text-amber-600',
   }
 
-  // Chart Data: Income vs Expense
+  // Chart Data: generated spending vs real cash outflow
   const flowChartData = [
     { name: 'Ingresos', value: metrics.totalIncome, color: '#10b981' },
-    { name: 'Gastos', value: metrics.totalExpense, color: '#f43f5e' }
+    { name: 'Gasto generado', value: metrics.generatedExpense, color: '#f43f5e' },
+    { name: 'Salida real', value: metrics.cashOutflow, color: '#0f172a' }
   ]
 
   const categoryChartData = useMemo(
@@ -316,11 +317,17 @@ export default function Home() {
           <KpiCard title="Efectivo Disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
           <KpiCard title="Disponible tras pendientes" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
           <KpiCard title="Deuda Total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
-          <KpiCard title="MSI pendientes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
+          <KpiCard title="MSI comprometido este mes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3 mb-8">
+        <div className="grid gap-6 md:grid-cols-4 mb-8">
+          <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Expense + compras con TDC" />
+          <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Expense + pagos TDC + pagos de deuda" />
+          <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
           <KpiCard title="Presupuesto del mes" value={formatMoney(metrics.totalBudget)} valueClassName="text-slate-950" />
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
           <KpiCard title="Gastado contra presupuesto" value={formatMoney(metrics.totalBudgetSpent)} valueClassName="text-rose-600" />
           <KpiCard
             title="Margen presupuestal"
@@ -328,6 +335,7 @@ export default function Home() {
             subtitle={metrics.overBudgetCount > 0 ? `${metrics.overBudgetCount} categoría(s) excedida(s)` : 'Sin categorías excedidas'}
             valueClassName={metrics.totalBudgetRemaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}
           />
+          <KpiCard title="Pagos de deuda" value={formatMoney(metrics.debtPayments)} valueClassName="text-amber-600" subtitle="Salida real sin categoría de gasto" />
         </div>
 
         {loadError && (
@@ -339,7 +347,7 @@ export default function Home() {
         {/* Gráficas Inteligentes */}
         <div className="grid gap-6 lg:grid-cols-12 mb-8">
           <div className="lg:col-span-8">
-            <Panel title="Flujo de Caja" subtitle="Ingresos y gasto real registrado del mes actual">
+            <Panel title="Flujo del Mes" subtitle="Compara ingreso, gasto generado y salida real de efectivo">
               <div className="min-w-0 h-80 w-full pt-4">
                 {chartsReady ? (
                   <ResponsiveContainer width="100%" height="100%">
@@ -365,7 +373,7 @@ export default function Home() {
           </div>
 
           <div className="lg:col-span-4">
-            <Panel title="Distribución" subtitle="Principales gastos por categoría">
+            <Panel title="Top categorías / fugas" subtitle="Gasto generado por categoría del mes">
               <div className="min-w-0 h-80 w-full flex flex-col items-center">
                 {chartsReady ? (
                   <ResponsiveContainer width="100%" height={200}>

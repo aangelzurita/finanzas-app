@@ -20,6 +20,14 @@ export type Transaction = {
   status?: string
 }
 
+function isCompletedTransaction(tx: Transaction) {
+  return (tx.status || 'completed') === 'completed'
+}
+
+function isBudgetExpense(tx: Transaction) {
+  return isCompletedTransaction(tx) && Boolean(tx.affects_budget)
+}
+
 export type Reminder = {
   id: string
   title: string
@@ -108,7 +116,7 @@ export function buildBudgetRows(
   return budgets
     .map((budget) => {
       const spent = monthTransactions
-        .filter((tx) => tx.category_id === budget.category_id && tx.affects_budget)
+        .filter((tx) => tx.category_id === budget.category_id && isBudgetExpense(tx))
         .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
 
       const budgetAmount = Number(budget.budget_amount || 0)
@@ -147,11 +155,23 @@ export function buildDashboardMetrics(
     debts.reduce((acc, debt) => acc + Number(debt.current_balance || 0), 0)
 
   const totalIncome = monthTransactions
-    .filter((tx) => tx.transaction_type === 'income')
+    .filter((tx) => isCompletedTransaction(tx) && tx.transaction_type === 'income')
     .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
 
-  const totalExpense = monthTransactions
-    .filter((tx) => ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
+  const generatedExpense = monthTransactions
+    .filter((tx) => isCompletedTransaction(tx) && ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
+    .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
+
+  const cardPayments = monthTransactions
+    .filter((tx) => isCompletedTransaction(tx) && tx.transaction_type === 'credit_card_payment')
+    .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
+
+  const debtPayments = monthTransactions
+    .filter((tx) => isCompletedTransaction(tx) && tx.transaction_type === 'debt_payment')
+    .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
+
+  const cashOutflow = monthTransactions
+    .filter((tx) => isCompletedTransaction(tx) && ['expense', 'credit_card_payment', 'debt_payment'].includes(tx.transaction_type))
     .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
 
   const fixedExpense = recurring.reduce((acc, charge) => acc + getPendingRecurringAmount(charge), 0)
@@ -165,7 +185,10 @@ export function buildDashboardMetrics(
     disponible,
     deuda,
     totalIncome,
-    totalExpense,
+    generatedExpense,
+    cashOutflow,
+    cardPayments,
+    debtPayments,
     fixedExpense,
     monthInstallments,
     totalBudget,
@@ -252,7 +275,7 @@ export function buildCategoryChartData(
   const categoryMap = new Map(categories.map((category) => [category.id, category.name]))
 
   monthTransactions
-    .filter((tx) => ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
+    .filter((tx) => isBudgetExpense(tx) && ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
     .forEach((tx) => {
       const categoryName = tx.category_id ? (categoryMap.get(tx.category_id) || 'Otros') : 'Sin categoría'
       counts.set(categoryName, (counts.get(categoryName) || 0) + Number(tx.amount))
