@@ -667,13 +667,75 @@ export default function Home() {
 
 function LoginScreen() {
   const supabase = createClient()
+  const [mode, setMode] = useState<'login' | 'signup' | 'recover' | 'reset'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    const applyRecoveryModeFromUrl = async () => {
+      const currentUrl = new URL(window.location.href)
+      const code = currentUrl.searchParams.get('code')
+      const queryType = currentUrl.searchParams.get('type')
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const hashType = hashParams.get('type')
+
+      if (queryType === 'recovery' || hashType === 'recovery') {
+        setMode('reset')
+      }
+
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+        if (exchangeError) {
+          setError('No se pudo validar el enlace de recuperación. Pide uno nuevo.')
+          return
+        }
+
+        setMode('reset')
+        setMessage('Enlace validado. Ahora escribe tu nueva contraseña.')
+        window.history.replaceState({}, document.title, currentUrl.pathname)
+      }
+    }
+
+    void applyRecoveryModeFromUrl()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setMode('reset')
+        setMessage('Ya puedes definir una nueva contraseña.')
+        setError('')
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth])
+
+  const clearFeedback = () => {
+    setError('')
+    setMessage('')
+  }
+
+  const resetFormFields = () => {
+    setPassword('')
+    setConfirmPassword('')
+  }
+
+  const changeMode = (nextMode: 'login' | 'signup' | 'recover' | 'reset') => {
+    setMode(nextMode)
+    clearFeedback()
+    resetFormFields()
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    clearFeedback()
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
@@ -684,18 +746,152 @@ function LoginScreen() {
     }
   }
 
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    clearFeedback()
+
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres.')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden.')
+      return
+    }
+
+    setLoading(true)
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    })
+
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+      return
+    }
+
+    setMessage('Cuenta creada. Revisa tu correo si Supabase te pide confirmación.')
+    setLoading(false)
+    resetFormFields()
+    setMode('login')
+  }
+
+  const handleRecovery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    clearFeedback()
+    setLoading(true)
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    })
+
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+      return
+    }
+
+    setMessage('Te enviamos un enlace para restablecer tu contraseña.')
+    setLoading(false)
+  }
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    clearFeedback()
+
+    if (password.length < 6) {
+      setError('La nueva contraseña debe tener al menos 6 caracteres.')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden.')
+      return
+    }
+
+    setLoading(true)
+    const { error } = await supabase.auth.updateUser({ password })
+
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+      return
+    }
+
+    setMessage('Contraseña actualizada. Entrando a la app...')
+    setLoading(false)
+    setTimeout(() => {
+      window.location.href = '/'
+    }, 700)
+  }
+
+  const isResetMode = mode === 'reset'
+  const isRecoverMode = mode === 'recover'
+  const isSignupMode = mode === 'signup'
+  const submitLabel = isResetMode
+    ? 'Guardar nueva contraseña'
+    : isRecoverMode
+      ? 'Enviar enlace'
+      : isSignupMode
+        ? 'Crear cuenta'
+        : 'Iniciar sesión'
+
+  const handleSubmit = (e: React.FormEvent) => {
+    if (isResetMode) {
+      void handlePasswordReset(e)
+      return
+    }
+
+    if (isRecoverMode) {
+      void handleRecovery(e)
+      return
+    }
+
+    if (isSignupMode) {
+      void handleSignUp(e)
+      return
+    }
+
+    void handleLogin(e)
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] -mr-64 -mt-64" />
       <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px] -ml-64 -mb-64" />
 
-      <form onSubmit={handleLogin} className="relative z-10 w-full max-w-md bg-white rounded-[3rem] p-12 shadow-2xl">
+      <form onSubmit={handleSubmit} className="relative z-10 w-full max-w-md bg-white rounded-[3rem] p-12 shadow-2xl">
         <div className="mb-10 text-center">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-[2rem] bg-slate-950 text-white mb-6 transform -rotate-12 shadow-xl">
             <Wallet size={40} />
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-slate-950 uppercase">Finanzas <span className="text-emerald-500">App</span></h1>
-          <p className="text-slate-400 font-bold text-sm mt-3 uppercase tracking-widest text-balance leading-relaxed">Control total de tus activos y gastos</p>
+          <p className="text-slate-400 font-bold text-sm mt-3 uppercase tracking-widest text-balance leading-relaxed">
+            {isResetMode
+              ? 'Define una nueva contraseña'
+              : isRecoverMode
+                ? 'Recupera el acceso a tu cuenta'
+                : isSignupMode
+                  ? 'Crea tu acceso personal'
+                  : 'Control total de tus activos y gastos'}
+          </p>
+        </div>
+
+        <div className="mb-8 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1 text-[11px] font-black uppercase tracking-widest text-slate-500">
+          <button type="button" onClick={() => changeMode('login')} className={`rounded-2xl px-3 py-3 transition ${mode === 'login' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-700'}`}>
+            Entrar
+          </button>
+          <button type="button" onClick={() => changeMode('signup')} className={`rounded-2xl px-3 py-3 transition ${mode === 'signup' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-700'}`}>
+            Crear cuenta
+          </button>
+          <button type="button" onClick={() => changeMode('recover')} className={`rounded-2xl px-3 py-3 transition ${mode === 'recover' ? 'bg-white text-slate-950 shadow-sm' : 'hover:text-slate-700'}`}>
+            Recuperar
+          </button>
         </div>
 
         <div className="space-y-5">
@@ -703,16 +899,48 @@ function LoginScreen() {
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email</label>
             <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 font-bold text-slate-900 focus:border-slate-950 focus:bg-white outline-none transition-all" />
           </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Password</label>
-            <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 font-bold text-slate-900 focus:border-slate-950 focus:bg-white outline-none transition-all" />
-          </div>
+          {!isRecoverMode && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
+                {isResetMode ? 'Nueva contraseña' : 'Password'}
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 font-bold text-slate-900 focus:border-slate-950 focus:bg-white outline-none transition-all"
+              />
+            </div>
+          )}
+          {(isSignupMode || isResetMode) && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Confirmar password</label>
+              <input
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 font-bold text-slate-900 focus:border-slate-950 focus:bg-white outline-none transition-all"
+              />
+            </div>
+          )}
         </div>
 
         <button disabled={loading} className="w-full mt-10 rounded-3xl bg-slate-950 py-6 text-xl font-black text-white hover:bg-slate-800 transition shadow-2xl active:scale-95 disabled:opacity-50">
-          {loading ? 'Entrando...' : 'Iniciar Sesión'}
+          {loading ? 'Procesando...' : submitLabel}
         </button>
-        {error && <p className="mt-6 text-center text-xs font-black text-rose-500 uppercase">{error}</p>}
+        {message && <p className="mt-6 text-center text-xs font-black text-emerald-600 uppercase">{message}</p>}
+        {error && <p className="mt-3 text-center text-xs font-black text-rose-500 uppercase">{error}</p>}
+        {mode !== 'login' && !isResetMode && (
+          <button
+            type="button"
+            onClick={() => changeMode('login')}
+            className="mt-6 w-full text-center text-xs font-black uppercase tracking-widest text-slate-400 transition hover:text-slate-900"
+          >
+            Volver a iniciar sesión
+          </button>
+        )}
       </form>
     </main>
   )
