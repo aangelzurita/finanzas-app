@@ -65,6 +65,7 @@ export default function TarjetaMovimientoPage() {
   const [categoryId, setCategoryId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(false)
+  const [msiCaptureMode, setMsiCaptureMode] = useState<'total' | 'monthly'>('total')
   const [installmentDescription, setInstallmentDescription] = useState('')
   const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
   const [installmentTotalMonths, setInstallmentTotalMonths] = useState('')
@@ -155,14 +156,22 @@ export default function TarjetaMovimientoPage() {
   const installmentMonthlyAmountPreview = useMemo(() => {
     const monthlyAmount = Number(installmentMonthlyAmount)
     if (monthlyAmount > 0) return monthlyAmount
+    if (msiCaptureMode === 'monthly') return 0
     return calculateMonthlyInstallment(Number(amount), Number(installmentTotalMonths))
-  }, [installmentMonthlyAmount, amount, installmentTotalMonths])
+  }, [installmentMonthlyAmount, amount, installmentTotalMonths, msiCaptureMode])
 
   const installmentTotalAmountPreview = useMemo(() => {
+    if (msiCaptureMode === 'monthly') {
+      return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+    }
+
     const totalAmount = Number(amount)
     if (totalAmount > 0) return totalAmount
     return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
-  }, [amount, installmentMonthlyAmount, installmentTotalMonths])
+  }, [amount, installmentMonthlyAmount, installmentTotalMonths, msiCaptureMode])
+
+  const isMonthlyMsiCapture =
+    movementType === 'credit_card_purchase' && isMsi && msiCaptureMode === 'monthly'
 
   const validate = () => {
     const parsedAmount =
@@ -201,7 +210,7 @@ export default function TarjetaMovimientoPage() {
           return false
         }
 
-        if (Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
+        if (msiCaptureMode === 'total' && Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
           const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
           if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
             fail('El monto total no coincide con la mensualidad y el número de meses del MSI.')
@@ -431,6 +440,7 @@ export default function TarjetaMovimientoPage() {
                   onChange={(e) => {
                     setMovementType(e.target.value as MovementType)
                     setIsMsi(false)
+                    setMsiCaptureMode('total')
                   }}
                 >
                   <option value="credit_card_purchase">Compra con TDC</option>
@@ -445,13 +455,27 @@ export default function TarjetaMovimientoPage() {
                   <input
                     type="number"
                     step="0.01"
-                    required={!isMsi || movementType !== 'credit_card_purchase'}
-                    className={`form-input pl-8 font-mono ${movementType === 'credit_card_payment' ? 'text-emerald-600 font-bold' : 'text-slate-900 font-bold'}`}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.00"
+                    required={!isMonthlyMsiCapture}
+                    readOnly={isMonthlyMsiCapture}
+                    className={`form-input pl-8 font-mono font-bold ${isMonthlyMsiCapture ? 'border-sky-100 bg-sky-50/60 text-slate-900' : movementType === 'credit_card_payment' ? 'text-emerald-600' : 'text-slate-900'}`}
+                    value={
+                      isMonthlyMsiCapture
+                        ? (installmentTotalAmountPreview > 0 ? installmentTotalAmountPreview.toFixed(2) : '')
+                        : amount
+                    }
+                    onChange={(e) => {
+                      if (!isMonthlyMsiCapture) {
+                        setAmount(e.target.value)
+                      }
+                    }}
+                    placeholder={isMonthlyMsiCapture ? 'Se calcula automáticamente' : '0.00'}
                   />
                 </div>
+                {isMonthlyMsiCapture ? (
+                  <p className="mt-1.5 text-xs text-sky-700 font-medium">
+                    Estamos calculando el total con la mensualidad por el número de meses.
+                  </p>
+                ) : null}
               </FormField>
             </div>
 
@@ -498,6 +522,35 @@ export default function TarjetaMovimientoPage() {
 
                 {isMsi ? (
                   <div className="grid gap-5 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <FormField label="Capturar MSI por">
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setMsiCaptureMode('total')}
+                            className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'total' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                          >
+                            Total de compra
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMsiCaptureMode('monthly')
+                              setAmount('')
+                            }}
+                            className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'monthly' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                          >
+                            Solo mensualidad
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs font-medium text-slate-500">
+                          {msiCaptureMode === 'monthly'
+                            ? 'Escribe la mensualidad y los meses; el total se calcula solo.'
+                            : 'Escribe el monto total de la compra. La mensualidad te ayuda a validarlo.'}
+                        </p>
+                      </FormField>
+                    </div>
+
                     <FormField label="Meses totales">
                       <input
                         type="number"
@@ -509,7 +562,7 @@ export default function TarjetaMovimientoPage() {
                       />
                     </FormField>
 
-                    <FormField label="Mensualidad">
+                    <FormField label={msiCaptureMode === 'monthly' ? 'Mensualidad base' : 'Mensualidad'}>
                       <input
                         type="number"
                         step="0.01"
@@ -518,6 +571,18 @@ export default function TarjetaMovimientoPage() {
                         onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
                         placeholder="0.00"
                       />
+                    </FormField>
+
+                    <FormField label={msiCaptureMode === 'monthly' ? 'Total calculado' : 'Total de compra'}>
+                      {msiCaptureMode === 'monthly' ? (
+                        <div className="rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 text-sm font-black text-slate-900">
+                          {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border-2 border-slate-100 bg-slate-50/60 p-4 text-sm font-bold text-slate-500">
+                          Estamos usando el monto de arriba como total de compra.
+                        </div>
+                      )}
                     </FormField>
 
                     <FormField label="Próxima mensualidad">

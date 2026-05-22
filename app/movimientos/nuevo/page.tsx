@@ -76,6 +76,7 @@ export default function NuevoMovimientoPage() {
   const [relatedDebtId, setRelatedDebtId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(false)
+  const [msiCaptureMode, setMsiCaptureMode] = useState<'total' | 'monthly'>('total')
   const [installmentDescription, setInstallmentDescription] = useState('')
   const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
   const [installmentTotalMonths, setInstallmentTotalMonths] = useState('')
@@ -134,14 +135,22 @@ export default function NuevoMovimientoPage() {
   const installmentMonthlyAmountPreview = useMemo(() => {
     const monthlyAmount = Number(installmentMonthlyAmount)
     if (monthlyAmount > 0) return monthlyAmount
+    if (msiCaptureMode === 'monthly') return 0
     return calculateMonthlyInstallment(Number(amount), Number(installmentTotalMonths))
-  }, [installmentMonthlyAmount, amount, installmentTotalMonths])
+  }, [installmentMonthlyAmount, amount, installmentTotalMonths, msiCaptureMode])
 
   const installmentTotalAmountPreview = useMemo(() => {
+    if (msiCaptureMode === 'monthly') {
+      return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
+    }
+
     const totalAmount = Number(amount)
     if (totalAmount > 0) return totalAmount
     return calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
-  }, [amount, installmentMonthlyAmount, installmentTotalMonths])
+  }, [amount, installmentMonthlyAmount, installmentTotalMonths, msiCaptureMode])
+
+  const isMonthlyMsiCapture =
+    transactionType === 'credit_card_purchase' && isMsi && msiCaptureMode === 'monthly'
 
   const handleTypeChange = (value: TransactionType) => {
     setTransactionType(value)
@@ -153,6 +162,7 @@ export default function NuevoMovimientoPage() {
     setRelatedDebtId('')
     setAffectsBalance(true)
     setIsMsi(false)
+    setMsiCaptureMode('total')
     setInstallmentDescription('')
     setInstallmentMonthlyAmount('')
     setInstallmentTotalMonths('')
@@ -217,7 +227,7 @@ export default function NuevoMovimientoPage() {
         return
       }
 
-      if (Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
+      if (msiCaptureMode === 'total' && Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
         const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
         if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
           setMessage('El monto total no coincide con la mensualidad y el número de meses del MSI.')
@@ -407,13 +417,27 @@ export default function NuevoMovimientoPage() {
                 <input
                   type="number"
                   step="0.01"
-                  required={!isMsi || transactionType !== 'credit_card_purchase'}
-                  className="w-full rounded-2xl border-2 border-emerald-50 bg-emerald-50/30 p-4 pl-10 font-black text-emerald-600 focus:border-emerald-500 focus:ring-0 transition-all text-3xl placeholder:text-emerald-200"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
+                  required={!isMonthlyMsiCapture}
+                  readOnly={isMonthlyMsiCapture}
+                  className={`w-full rounded-2xl border-2 p-4 pl-10 font-black text-3xl transition-all placeholder:text-emerald-200 ${isMonthlyMsiCapture ? 'border-sky-100 bg-sky-50/60 text-slate-900 focus:border-sky-200' : 'border-emerald-50 bg-emerald-50/30 text-emerald-600 focus:border-emerald-500'} focus:ring-0`}
+                  value={
+                    isMonthlyMsiCapture
+                      ? (installmentTotalAmountPreview > 0 ? installmentTotalAmountPreview.toFixed(2) : '')
+                      : amount
+                  }
+                  onChange={(e) => {
+                    if (!isMonthlyMsiCapture) {
+                      setAmount(e.target.value)
+                    }
+                  }}
+                  placeholder={isMonthlyMsiCapture ? 'Se calcula automáticamente' : '0.00'}
                 />
               </div>
+              {isMonthlyMsiCapture ? (
+                <p className="mt-2 text-xs font-bold text-sky-700">
+                  Estamos calculando el total con la mensualidad por el número de meses.
+                </p>
+              ) : null}
             </div>
 
             <div className="col-span-2">
@@ -597,6 +621,34 @@ export default function NuevoMovimientoPage() {
 
                 {isMsi ? (
                   <>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Capturar MSI por</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setMsiCaptureMode('total')}
+                          className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'total' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                        >
+                          Total de compra
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMsiCaptureMode('monthly')
+                            setAmount('')
+                          }}
+                          className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'monthly' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                        >
+                          Solo mensualidad
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs font-bold text-slate-500">
+                        {msiCaptureMode === 'monthly'
+                          ? 'Escribe la mensualidad y los meses; el total se calcula solo.'
+                          : 'Escribe el monto total de la compra. La mensualidad te ayuda a validarlo.'}
+                      </p>
+                    </div>
+
                     <div className="col-span-2 md:col-span-1">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Meses totales</label>
                       <input
@@ -610,7 +662,9 @@ export default function NuevoMovimientoPage() {
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Mensualidad</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                        {msiCaptureMode === 'monthly' ? 'Mensualidad base' : 'Mensualidad'}
+                      </label>
                       <input
                         type="number"
                         step="0.01"
@@ -619,6 +673,21 @@ export default function NuevoMovimientoPage() {
                         onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
                         placeholder="0.00"
                       />
+                    </div>
+
+                    <div className="col-span-2 md:col-span-1">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                        {msiCaptureMode === 'monthly' ? 'Total calculado' : 'Total de compra'}
+                      </label>
+                      {msiCaptureMode === 'monthly' ? (
+                        <div className="w-full rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 font-black text-slate-900 text-lg">
+                          {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                        </div>
+                      ) : (
+                        <div className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/60 p-4 font-bold text-slate-500 text-sm">
+                          Estamos usando el monto de arriba como total de compra.
+                        </div>
+                      )}
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
