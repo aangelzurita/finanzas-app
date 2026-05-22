@@ -43,7 +43,7 @@ export default function EditarRecurrentePage() {
   const [frequency, setFrequency] = useState<RecurringFrequency>('monthly')
   const [chargeDay, setChargeDay] = useState('')
   const [categoryId, setCategoryId] = useState('')
-  const [paymentMethodType, setPaymentMethodType] = useState<'account' | 'credit_card'>('credit_card')
+  const [paymentMethodType, setPaymentMethodType] = useState<'account' | 'credit_card' | 'manual_choice'>('credit_card')
   const [accountId, setAccountId] = useState('')
   const [creditCardId, setCreditCardId] = useState('')
   const [isActive, setIsActive] = useState(true)
@@ -322,14 +322,15 @@ export default function EditarRecurrentePage() {
               </Field>
 
               <div className="grid gap-6 md:grid-cols-2">
-                <Field label="Método de pago">
+                <Field label="Forma de pago">
                   <select
                     className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all appearance-none"
                     value={paymentMethodType}
-                    onChange={(e) => setPaymentMethodType(e.target.value as 'account' | 'credit_card')}
+                    onChange={(e) => setPaymentMethodType(e.target.value as 'account' | 'credit_card' | 'manual_choice')}
                   >
-                    <option value="credit_card">Tarjeta de crédito</option>
-                    <option value="account">Cuenta de débito/efectivo</option>
+                    <option value="credit_card">Domiciliado a tarjeta</option>
+                    <option value="account">Domiciliado a cuenta</option>
+                    <option value="manual_choice">Por definir al pagar</option>
                   </select>
                 </Field>
 
@@ -360,6 +361,14 @@ export default function EditarRecurrentePage() {
                         <option key={card.id} value={card.id}>{card.name}</option>
                       ))}
                     </select>
+                  </Field>
+                )}
+
+                {paymentMethodType === 'manual_choice' && (
+                  <Field label="Cómo se liquidará">
+                    <div className="rounded-2xl border-2 border-slate-100 bg-slate-100 px-5 py-4 text-sm font-bold text-slate-500">
+                      Este recurrente quedará pendiente y al llegar la fecha podrás elegir cuenta o tarjeta en ese momento.
+                    </div>
                   </Field>
                 )}
               </div>

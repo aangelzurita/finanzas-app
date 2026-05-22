@@ -8,6 +8,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import {
   getPendingRecurringAmount,
   getPendingRecurringOccurrences,
+  isRecurringChargeAutoPayable,
   isRecurringChargeDue,
   processRecurringCharges,
   type RecurringCharge,
@@ -91,12 +92,25 @@ export default function RecurrentesPage() {
     [charges]
   )
 
+  const autoDueCharges = useMemo(
+    () => dueCharges.filter((charge) => isRecurringChargeAutoPayable(charge)),
+    [dueCharges]
+  )
+
+  const manualDueCharges = useMemo(
+    () => dueCharges.filter((charge) => !isRecurringChargeAutoPayable(charge)),
+    [dueCharges]
+  )
+
   const pendingAmount = useMemo(
     () => dueCharges.reduce((acc, charge) => acc + getPendingRecurringAmount(charge), 0),
     [dueCharges]
   )
 
   const paymentMethodLabel = (charge: RecurringCharge) => {
+    if (charge.payment_method_type === 'manual_choice') {
+      return 'Por definir al pagar'
+    }
     if (charge.payment_method_type === 'account') {
       return accountMap.get(charge.account_id || '') || 'Cuenta'
     }
@@ -121,13 +135,13 @@ export default function RecurrentesPage() {
   }
 
   const handleProcess = async () => {
-    if (dueCharges.length === 0) return
+    if (autoDueCharges.length === 0) return
 
     setProcessing(true)
     setMessage('')
 
     try {
-      const processed = await processRecurringCharges(supabase, dueCharges)
+      const processed = await processRecurringCharges(supabase, autoDueCharges)
       setCharges((prev) => {
         const processedMap = new Map(processed.map((charge) => [charge.id, charge]))
         return prev.map((charge) => processedMap.get(charge.id) ?? charge)
@@ -179,10 +193,10 @@ export default function RecurrentesPage() {
               <button
                 type="button"
                 onClick={handleProcess}
-                disabled={processing || dueCharges.length === 0}
+                disabled={processing || autoDueCharges.length === 0}
                 className="rounded-2xl bg-violet-500 hover:bg-violet-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95 disabled:opacity-50"
               >
-                {processing ? 'Procesando...' : 'Procesar recurrentes'}
+                {processing ? 'Procesando...' : 'Procesar domiciliados'}
               </button>
 
               <Link
@@ -209,7 +223,7 @@ export default function RecurrentesPage() {
             value={String(charges.filter((c) => c.is_active).length)}
           />
           <KpiCard
-            title="Pendiente por procesar"
+            title="Pendiente del periodo"
             value={formatMoney(pendingAmount)}
             valueClassName="text-violet-600 font-bold"
           />
@@ -219,6 +233,12 @@ export default function RecurrentesPage() {
             valueClassName="text-sky-600"
           />
         </div>
+
+        {manualDueCharges.length > 0 && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 shadow-sm animate-in fade-in slide-in-from-top-2">
+            Tienes {manualDueCharges.length} recurrente(s) vencido(s) con pago por definir. Liquídalos desde "Pagar ahora".
+          </div>
+        )}
 
         <div className="rounded-[2.5rem] border border-slate-200 bg-white shadow-lg overflow-hidden">
           <div className="px-8 py-6 border-b border-slate-100 bg-white">
@@ -266,6 +286,9 @@ export default function RecurrentesPage() {
                     </td>
                     <td className="px-8 py-5">
                       <p className="text-sm text-slate-600 font-medium">{paymentMethodLabel(charge)}</p>
+                      {charge.payment_method_type === 'manual_choice' ? (
+                        <p className="mt-1 text-xs font-bold text-amber-600 uppercase tracking-widest">Se elige al liquidar</p>
+                      ) : null}
                     </td>
                     <td className="px-8 py-5">
                       <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black tracking-widest uppercase ${charge.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -275,6 +298,14 @@ export default function RecurrentesPage() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        {charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge) ? (
+                          <Link
+                            href={`/recurrentes/${charge.id}/pagar`}
+                            className="rounded-xl border-2 border-amber-100 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-500 hover:text-white transition-all active:scale-95"
+                          >
+                            PAGAR AHORA
+                          </Link>
+                        ) : null}
                         <Link
                           href={`/recurrentes/${charge.id}/editar`}
                           className="rounded-xl border-2 border-slate-100 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-900 hover:text-white transition-all active:scale-95"

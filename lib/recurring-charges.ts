@@ -16,7 +16,7 @@ export type RecurringCharge = {
   frequency: RecurringFrequency
   charge_day: number | null
   category_id: string | null
-  payment_method_type: 'account' | 'credit_card'
+  payment_method_type: 'account' | 'credit_card' | 'manual_choice'
   account_id: string | null
   credit_card_id: string | null
   next_charge_date: string | null
@@ -124,6 +124,12 @@ export function getPendingRecurringAmount(
   return getPendingRecurringOccurrences(charge, referenceDate).length * Number(charge.amount || 0)
 }
 
+export function isRecurringChargeAutoPayable(
+  charge: Pick<RecurringCharge, 'payment_method_type'>
+) {
+  return charge.payment_method_type === 'account' || charge.payment_method_type === 'credit_card'
+}
+
 async function loadCardAccountIds(
   supabase: SupabaseClient,
   charges: RecurringCharge[]
@@ -173,6 +179,10 @@ async function ensureRecurringTransaction(
 
   if (!charge.category_id) {
     throw new Error(`El recurrente "${charge.name}" necesita una categoría para generar movimientos reales.`)
+  }
+
+  if (!isRecurringChargeAutoPayable(charge)) {
+    throw new Error(`El recurrente "${charge.name}" está configurado para decidir el pago al momento.`)
   }
 
   const isCardCharge = charge.payment_method_type === 'credit_card'
@@ -253,12 +263,113 @@ export async function processRecurringCharges(
   charges: RecurringCharge[],
   referenceDate = new Date()
 ) {
-  const cardAccountIds = await loadCardAccountIds(supabase, charges)
+  const autoPayableCharges = charges.filter((charge) => isRecurringChargeAutoPayable(charge))
+  const cardAccountIds = await loadCardAccountIds(supabase, autoPayableCharges)
   const processed: RecurringCharge[] = []
 
-  for (const charge of charges) {
+  for (const charge of autoPayableCharges) {
     processed.push(await processRecurringCharge(supabase, charge, cardAccountIds, referenceDate))
   }
 
   return processed
+}
+
+export async function settleRecurringCharge(
+  supabase: SupabaseClient,
+  charge: RecurringCharge,
+  paymentMethodType: 'account' | 'credit_card',
+  paymentSourceId: string,
+  referenceDate = new Date()
+) {
+  if (!charge.is_active || !charge.next_charge_date) {
+    throw new Error('Este recurrente no tiene un cobro pendiente por liquidar.')
+  }
+
+  if (!charge.category_id) {
+    throw new Error(`El recurrente "${charge.name}" necesita una categoría para generar movimientos reales.`)
+  }
+
+  const dueDates = getPendingRecurringOccurrences(charge, referenceDate)
+  if (dueDates.length === 0) {
+    throw new Error('Este recurrente todavía no vence.')
+  }
+
+  const chargeDate = dueDates[0]
+  const runDate = chargeDate
+  const isCardCharge = paymentMethodType === 'credit_card'
+  let sourceAccountId = paymentSourceId
+
+  if (isCardCharge) {
+    const { data: card, error: cardError } = await supabase
+      .from('credit_cards')
+      .select('id, account_id')
+      .eq('id', paymentSourceId)
+      .single()
+
+    if (cardError || !card) {
+      throw new Error(cardError?.message || 'No se encontró la tarjeta seleccionada.')
+    }
+
+    sourceAccountId = card.account_id
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('transactions')
+    .select('id')
+    .eq('related_recurring_charge_id', charge.id)
+    .eq('recurring_charge_run_date', runDate)
+    .maybeSingle()
+
+  if (existingError) {
+    throw new Error(existingError.message)
+  }
+
+  if (existing) {
+    throw new Error('Este recurrente ya fue liquidado para la fecha actual.')
+  }
+
+  const { error: insertError } = await supabase
+    .from('transactions')
+    .insert({
+      user_id: charge.user_id,
+      transaction_type: isCardCharge ? 'credit_card_purchase' : 'expense',
+      amount: Number(charge.amount || 0),
+      transaction_date: formatChargeTimestamp(parseDateOnly(chargeDate)),
+      description: charge.description?.trim() ? `${charge.name} - ${charge.description}` : charge.name,
+      status: 'completed',
+      affects_budget: true,
+      source_account_id: sourceAccountId,
+      destination_account_id: null,
+      category_id: charge.category_id,
+      related_credit_card_id: isCardCharge ? paymentSourceId : null,
+      related_debt_id: null,
+      related_recurring_charge_id: charge.id,
+      recurring_charge_run_date: runDate,
+    })
+
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
+
+  const nextChargeDate = calculateNextChargeDateFrom(
+    charge.frequency,
+    charge.charge_day,
+    parseDateOnly(chargeDate)
+  )
+
+  const { data, error } = await supabase
+    .from('recurring_charges')
+    .update({
+      next_charge_date: nextChargeDate,
+      last_processed_charge_date: chargeDate,
+    })
+    .eq('id', charge.id)
+    .select('*')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || 'No se pudo actualizar el recurrente liquidado.')
+  }
+
+  return data as RecurringCharge
 }

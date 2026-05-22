@@ -248,7 +248,12 @@ export function buildConsolidatedCommitments(
     dueDate: charge.next_charge_date || new Date().toISOString(),
     amount: getPendingRecurringAmount(charge),
     tone: 'violet',
-    meta: charge.payment_method_type === 'credit_card' ? 'Recurrente en tarjeta' : 'Recurrente en cuenta',
+    meta:
+      charge.payment_method_type === 'credit_card'
+        ? 'Recurrente en tarjeta'
+        : charge.payment_method_type === 'account'
+          ? 'Recurrente en cuenta'
+          : 'Recurrente por definir',
   }))
 
   const cardItems: CommitmentItem[] = upcomingCardPayments.map((card) => ({
