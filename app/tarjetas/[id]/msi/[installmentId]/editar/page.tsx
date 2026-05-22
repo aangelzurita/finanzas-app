@@ -26,6 +26,7 @@ export default function EditarMsiPage() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'error' | 'success' | ''>('')
   const [lastProcessedInstallmentNumber, setLastProcessedInstallmentNumber] = useState(0)
@@ -208,6 +209,34 @@ export default function EditarMsiPage() {
     }, 700)
   }
 
+  const handleDelete = async () => {
+    if (!confirm('¿Seguro que quieres eliminar este MSI? Esta acción no se puede deshacer.')) return
+
+    setDeleting(true)
+    setMessage('')
+    setMessageType('')
+
+    const { error } = await supabase
+      .from('credit_card_installments')
+      .delete()
+      .eq('id', installmentId)
+
+    if (error) {
+      setMessage(error.message)
+      setMessageType('error')
+      setDeleting(false)
+      return
+    }
+
+    setMessage('MSI eliminado correctamente.')
+    setMessageType('success')
+
+    setTimeout(() => {
+      router.push(`/tarjetas/${cardId}`)
+      router.refresh()
+    }, 500)
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 flex items-center justify-center">
@@ -265,6 +294,21 @@ export default function EditarMsiPage() {
           messageType={messageType}
           allowStatus
         />
+
+        <div className="mt-4 rounded-[2rem] border border-rose-100 bg-white p-6 shadow-sm">
+          <p className="text-sm font-bold text-slate-900">Eliminar MSI</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Úsalo para limpiar planes duplicados o compras a MSI que ya no deben aparecer en pendientes.
+          </p>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting || saving}
+            className="mt-4 w-full rounded-2xl bg-rose-600 py-4 text-sm font-black text-white transition-all hover:bg-rose-700 disabled:opacity-50"
+          >
+            {deleting ? 'ELIMINANDO MSI...' : 'ELIMINAR MSI'}
+          </button>
+        </div>
       </section>
     </main>
   )

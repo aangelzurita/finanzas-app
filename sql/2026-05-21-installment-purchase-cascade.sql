@@ -1,0 +1,8 @@
+alter table public.credit_card_installments
+drop constraint if exists credit_card_installments_purchase_transaction_id_fkey;
+
+alter table public.credit_card_installments
+add constraint credit_card_installments_purchase_transaction_id_fkey
+foreign key (purchase_transaction_id)
+references public.transactions(id)
+on delete cascade;
