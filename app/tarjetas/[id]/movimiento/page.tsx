@@ -527,7 +527,10 @@ export default function TarjetaMovimientoPage() {
                         <div className="grid grid-cols-2 gap-3">
                           <button
                             type="button"
-                            onClick={() => setMsiCaptureMode('total')}
+                            onClick={() => {
+                              setMsiCaptureMode('total')
+                              setInstallmentMonthlyAmount('')
+                            }}
                             className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'total' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
                           >
                             Total de compra
@@ -566,11 +569,25 @@ export default function TarjetaMovimientoPage() {
                       <input
                         type="number"
                         step="0.01"
-                        className="form-input"
-                        value={installmentMonthlyAmount}
-                        onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
-                        placeholder="0.00"
+                        readOnly={msiCaptureMode === 'total'}
+                        className={`form-input ${msiCaptureMode === 'total' ? 'border-sky-100 bg-sky-50/60 font-mono font-bold text-slate-900' : ''}`}
+                        value={
+                          msiCaptureMode === 'total'
+                            ? (installmentMonthlyAmountPreview > 0 ? installmentMonthlyAmountPreview.toFixed(2) : '')
+                            : installmentMonthlyAmount
+                        }
+                        onChange={(e) => {
+                          if (msiCaptureMode === 'monthly') {
+                            setInstallmentMonthlyAmount(e.target.value)
+                          }
+                        }}
+                        placeholder={msiCaptureMode === 'total' ? 'Se calcula automáticamente' : '0.00'}
                       />
+                      {msiCaptureMode === 'total' ? (
+                        <p className="mt-1.5 text-xs text-sky-700 font-medium">
+                          Se calcula dividiendo el monto total entre los meses.
+                        </p>
+                      ) : null}
                     </FormField>
 
                     <FormField label={msiCaptureMode === 'monthly' ? 'Total calculado' : 'Total de compra'}>
