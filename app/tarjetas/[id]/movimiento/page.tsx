@@ -10,6 +10,7 @@ import {
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
 import {
+  calculateFirstInstallmentPaymentDate,
   calculateMonthlyInstallment,
   calculateTotalAmount,
   createInstallmentPlan,
@@ -22,6 +23,8 @@ type CreditCard = {
   account_id: string
   name: string
   bank: string | null
+  statement_cutoff_day: number
+  payment_due_day: number
 }
 
 type Category = {
@@ -65,6 +68,7 @@ export default function TarjetaMovimientoPage() {
   const [categoryId, setCategoryId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(false)
+  const [msiTimingMode, setMsiTimingMode] = useState<'new' | 'historical'>('new')
   const [msiCaptureMode, setMsiCaptureMode] = useState<'total' | 'monthly'>('total')
   const [installmentDescription, setInstallmentDescription] = useState('')
   const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
@@ -92,7 +96,7 @@ export default function TarjetaMovimientoPage() {
     ] = await Promise.all([
       supabase
         .from('credit_cards')
-        .select('id, account_id, name, bank')
+        .select('id, account_id, name, bank, statement_cutoff_day, payment_due_day')
         .eq('id', cardId)
         .single(),
       supabase
@@ -172,6 +176,25 @@ export default function TarjetaMovimientoPage() {
 
   const isMonthlyMsiCapture =
     movementType === 'credit_card_purchase' && isMsi && msiCaptureMode === 'monthly'
+
+  const firstMsiPaymentDate = useMemo(() => {
+    if (!card || !transactionDate) return ''
+    return calculateFirstInstallmentPaymentDate(transactionDate, {
+      statementCutoffDay: card.statement_cutoff_day,
+      paymentDueDay: card.payment_due_day,
+    })
+  }, [card, transactionDate])
+
+  useEffect(() => {
+    if (!card || movementType !== 'credit_card_purchase' || !isMsi) return
+
+    setInstallmentChargeDay(String(card.payment_due_day))
+
+    if (msiTimingMode === 'new') {
+      setInstallmentCurrentNumber('1')
+      setInstallmentStartDate(firstMsiPaymentDate)
+    }
+  }, [card, firstMsiPaymentDate, isMsi, movementType, msiTimingMode])
 
   const validate = () => {
     const parsedAmount =
@@ -440,6 +463,7 @@ export default function TarjetaMovimientoPage() {
                   onChange={(e) => {
                     setMovementType(e.target.value as MovementType)
                     setIsMsi(false)
+                    setMsiTimingMode('new')
                     setMsiCaptureMode('total')
                   }}
                 >
@@ -510,7 +534,12 @@ export default function TarjetaMovimientoPage() {
                     type="checkbox"
                     className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                     checked={isMsi}
-                    onChange={(e) => setIsMsi(e.target.checked)}
+                    onChange={(e) => {
+                      setIsMsi(e.target.checked)
+                      if (e.target.checked) {
+                        setMsiTimingMode('new')
+                      }
+                    }}
                   />
                   <div>
                     <p className="text-sm font-bold text-slate-900">Es compra a MSI</p>
@@ -522,6 +551,32 @@ export default function TarjetaMovimientoPage() {
 
                 {isMsi ? (
                   <div className="grid gap-5 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <FormField label="Tipo de MSI">
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setMsiTimingMode('new')}
+                            className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiTimingMode === 'new' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                          >
+                            Compra nueva
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMsiTimingMode('historical')}
+                            className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiTimingMode === 'historical' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                          >
+                            MSI histórico
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs font-medium text-slate-500">
+                          {msiTimingMode === 'new'
+                            ? 'Usamos la fecha de compra, el corte y el límite de pago de la tarjeta.'
+                            : 'Úsalo para una compra que ya aparece en tu estado de cuenta.'}
+                        </p>
+                      </FormField>
+                    </div>
+
                     <div className="md:col-span-2">
                       <FormField label="Capturar MSI por">
                         <div className="grid grid-cols-2 gap-3">
@@ -602,36 +657,52 @@ export default function TarjetaMovimientoPage() {
                       )}
                     </FormField>
 
-                    <FormField label="Próxima mensualidad">
+                    <FormField label={msiTimingMode === 'new' ? 'Mensualidad inicial' : 'Próxima mensualidad'}>
                       <input
                         type="number"
                         min="1"
                         className="form-input"
+                        readOnly={msiTimingMode === 'new'}
                         value={installmentCurrentNumber}
                         onChange={(e) => setInstallmentCurrentNumber(e.target.value)}
                         placeholder="1"
                       />
+                      {msiTimingMode === 'historical' ? (
+                        <p className="mt-1.5 text-xs text-slate-500 font-medium">
+                          Captura la mensualidad que sigue según tu estado de cuenta, por ejemplo 3 si va en 3/12.
+                        </p>
+                      ) : null}
                     </FormField>
 
-                    <FormField label="Día de cargo">
+                    <FormField label="Día límite de pago">
                       <input
                         type="number"
                         min="1"
                         max="31"
-                        className="form-input"
+                        readOnly
+                        className="form-input border-sky-100 bg-sky-50/60 font-mono font-bold text-slate-900"
                         value={installmentChargeDay}
-                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
-                        placeholder="15"
+                        onChange={() => undefined}
+                        placeholder={card ? String(card.payment_due_day) : '15'}
                       />
+                      <p className="mt-1.5 text-xs text-sky-700 font-medium">
+                        Se toma automáticamente de la tarjeta.
+                      </p>
                     </FormField>
 
-                    <FormField label="Fecha de inicio">
+                    <FormField label={msiTimingMode === 'new' ? 'Primera fecha límite de pago' : 'Fecha del próximo pago'}>
                       <input
                         type="date"
                         className="form-input"
+                        readOnly={msiTimingMode === 'new'}
                         value={installmentStartDate}
                         onChange={(e) => setInstallmentStartDate(e.target.value)}
                       />
+                      {msiTimingMode === 'new' && card ? (
+                        <p className="mt-1.5 text-xs text-sky-700 font-medium">
+                          Corte día {card.statement_cutoff_day}; pago límite día {card.payment_due_day}.
+                        </p>
+                      ) : null}
                     </FormField>
 
                     <FormField label="Descripción MSI">

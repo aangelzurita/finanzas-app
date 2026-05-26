@@ -1,5 +1,9 @@
 import { formatMoney } from '@/lib/utils'
-import { getInstallmentDisplayState, type CreditCardInstallment } from '@/lib/credit-card-installments'
+import {
+  getInstallmentChargeDate,
+  getInstallmentDisplayState,
+  type CreditCardInstallment,
+} from '@/lib/credit-card-installments'
 import type { RecurringCharge } from '@/lib/recurring-charges'
 
 export type Account = {
@@ -16,6 +20,10 @@ export type Transaction = {
   description: string | null
   transaction_date: string
   category_id: string | null
+  source_account_id?: string | null
+  destination_account_id?: string | null
+  related_credit_card_id?: string | null
+  related_installment_id?: string | null
   affects_budget?: boolean
   status?: string
 }
@@ -111,13 +119,19 @@ export function daysUntilDate(value: string) {
 export function buildBudgetRows(
   budgets: Budget[],
   monthTransactions: Transaction[],
-  categoryMap: Map<string, string>
+  categoryMap: Map<string, string>,
+  installmentBudgetAmounts: Map<string, number> = new Map()
 ) {
   return budgets
     .map((budget) => {
       const spent = monthTransactions
-        .filter((tx) => tx.category_id === budget.category_id && isBudgetExpense(tx))
+        .filter((tx) =>
+          tx.category_id === budget.category_id &&
+          isBudgetExpense(tx) &&
+          tx.transaction_type === 'expense'
+        )
         .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
+        + Number(installmentBudgetAmounts.get(budget.category_id) || 0)
 
       const budgetAmount = Number(budget.budget_amount || 0)
       const remaining = budgetAmount - spent
@@ -143,7 +157,8 @@ export function buildDashboardMetrics(
   installments: CreditCardInstallment[],
   budgetRows: BudgetProgress[],
   getPendingRecurringAmount: (charge: RecurringCharge) => number,
-  getPendingInstallmentAmount: (plan: CreditCardInstallment) => number
+  getPendingInstallmentAmount: (plan: CreditCardInstallment) => number,
+  msiPurchaseIds: Set<string> = new Set()
 ) {
   const disponible = accounts
     .filter((account) => ['cash', 'debit'].includes(account.account_type))
@@ -159,7 +174,11 @@ export function buildDashboardMetrics(
     .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
 
   const generatedExpense = monthTransactions
-    .filter((tx) => isCompletedTransaction(tx) && ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
+    .filter((tx) =>
+      isCompletedTransaction(tx) &&
+      ['expense', 'credit_card_purchase'].includes(tx.transaction_type) &&
+      !msiPurchaseIds.has(tx.id)
+    )
     .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
 
   const cardPayments = monthTransactions
@@ -235,7 +254,7 @@ export function buildConsolidatedCommitments(
     return {
       id: `installment-${plan.id}`,
       title: plan.description,
-      dueDate: new Date(new Date().getFullYear(), new Date().getMonth(), plan.charge_day, 9, 0, 0, 0).toISOString(),
+      dueDate: getInstallmentChargeDate(plan, displayState.currentInstallmentNumber).toISOString(),
       amount: Number(plan.monthly_amount || 0),
       tone: 'sky',
       meta: `MSI próxima ${displayState.currentInstallmentNumber}/${plan.total_months}`,
@@ -274,17 +293,23 @@ export function buildConsolidatedCommitments(
 
 export function buildCategoryChartData(
   monthTransactions: Transaction[],
-  categories: Category[]
+  categories: Category[],
+  installmentBudgetAmounts: Map<string, number> = new Map()
 ) {
   const counts = new Map<string, number>()
   const categoryMap = new Map(categories.map((category) => [category.id, category.name]))
 
   monthTransactions
-    .filter((tx) => isBudgetExpense(tx) && ['expense', 'credit_card_purchase'].includes(tx.transaction_type))
+    .filter((tx) => isBudgetExpense(tx) && tx.transaction_type === 'expense')
     .forEach((tx) => {
       const categoryName = tx.category_id ? (categoryMap.get(tx.category_id) || 'Otros') : 'Sin categoría'
       counts.set(categoryName, (counts.get(categoryName) || 0) + Number(tx.amount))
     })
+
+  installmentBudgetAmounts.forEach((amount, categoryId) => {
+    const categoryName = categoryMap.get(categoryId) || 'MSI'
+    counts.set(categoryName, (counts.get(categoryName) || 0) + Number(amount || 0))
+  })
 
   return Array.from(counts.entries())
     .map(([name, value]) => ({ name, value }))

@@ -39,6 +39,11 @@ export type InstallmentPlanDraft = {
   notes?: string | null
 }
 
+export type CreditCardBillingCycle = {
+  statementCutoffDay: number
+  paymentDueDay: number
+}
+
 function safeDayForMonth(year: number, month: number, day: number) {
   return Math.min(day, new Date(year, month + 1, 0).getDate())
 }
@@ -69,13 +74,44 @@ function getLastProcessedInstallmentNumber(
   return Math.max(0, Number(plan.last_processed_installment_number ?? fallback))
 }
 
+function parseLocalDate(value: string | Date) {
+  if (value instanceof Date) return value
+  return new Date(`${value.slice(0, 10)}T12:00:00`)
+}
+
+export function calculateFirstInstallmentPaymentDate(
+  purchaseDate: string | Date,
+  cycle: CreditCardBillingCycle
+) {
+  const purchase = parseLocalDate(purchaseDate)
+  const cutoffDay = Number(cycle.statementCutoffDay)
+  const paymentDueDay = Number(cycle.paymentDueDay)
+
+  const cutoffMonthOffset = purchase.getDate() <= safeDayForMonth(purchase.getFullYear(), purchase.getMonth(), cutoffDay) ? 0 : 1
+  const cutoffDate = buildDate(purchase.getFullYear(), purchase.getMonth() + cutoffMonthOffset, cutoffDay)
+  const paymentMonthOffset = paymentDueDay <= cutoffDate.getDate() ? 1 : 0
+  const paymentDate = buildDate(cutoffDate.getFullYear(), cutoffDate.getMonth() + paymentMonthOffset, paymentDueDay)
+
+  return formatISODate(paymentDate)
+}
+
 export function getInstallmentDueNumber(
   plan: Pick<CreditCardInstallment, 'total_months' | 'charge_day' | 'start_date'>,
   referenceDate = new Date()
 ) {
-  const startDate = new Date(`${plan.start_date}T12:00:00`)
-  const elapsedMonths = Math.max(0, monthDiff(startDate, referenceDate))
-  return Math.min(plan.total_months, elapsedMonths + 1)
+  const firstChargeDate = getInstallmentChargeDate(plan, 1)
+  const reference = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 12, 0, 0)
+
+  if (reference < firstChargeDate) {
+    return 0
+  }
+
+  let dueNumber = Math.min(plan.total_months, monthDiff(firstChargeDate, reference) + 1)
+  while (dueNumber > 0 && getInstallmentChargeDate(plan, dueNumber) > reference) {
+    dueNumber -= 1
+  }
+
+  return Math.max(0, dueNumber)
 }
 
 export function getInstallmentChargeDate(
@@ -266,7 +302,7 @@ export function deriveInstallmentState(
   const remaining = Math.max(0, plan.total_months - lastProcessed)
 
   return {
-    current_installment_number: completed ? plan.total_months : dueNumber,
+    current_installment_number: completed ? plan.total_months : Math.max(1, dueNumber),
     remaining_installments: completed ? 0 : remaining,
     last_processed_installment_number: lastProcessed,
     status: completed ? ('completed' as const) : ('active' as const),

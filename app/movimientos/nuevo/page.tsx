@@ -9,6 +9,7 @@ import {
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
 import {
+  calculateFirstInstallmentPaymentDate,
   calculateMonthlyInstallment,
   calculateTotalAmount,
   createInstallmentPlan,
@@ -32,6 +33,8 @@ type CreditCard = {
   id: string
   name: string
   account_id: string
+  statement_cutoff_day: number
+  payment_due_day: number
 }
 
 type Debt = {
@@ -76,6 +79,7 @@ export default function NuevoMovimientoPage() {
   const [relatedDebtId, setRelatedDebtId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(false)
+  const [msiTimingMode, setMsiTimingMode] = useState<'new' | 'historical'>('new')
   const [msiCaptureMode, setMsiCaptureMode] = useState<'total' | 'monthly'>('total')
   const [installmentDescription, setInstallmentDescription] = useState('')
   const [installmentMonthlyAmount, setInstallmentMonthlyAmount] = useState('')
@@ -97,7 +101,7 @@ export default function NuevoMovimientoPage() {
       await Promise.all([
         supabase.from('accounts').select('id, name, account_type').eq('is_active', true).order('name'),
         supabase.from('categories').select('id, name, category_type').eq('is_active', true).order('name'),
-        supabase.from('credit_cards').select('id, name, account_id').eq('is_active', true).order('name'),
+        supabase.from('credit_cards').select('id, name, account_id, statement_cutoff_day, payment_due_day').eq('is_active', true).order('name'),
         supabase.from('debts').select('id, name').neq('status', 'paid').order('name'),
       ])
 
@@ -152,6 +156,30 @@ export default function NuevoMovimientoPage() {
   const isMonthlyMsiCapture =
     transactionType === 'credit_card_purchase' && isMsi && msiCaptureMode === 'monthly'
 
+  const selectedCreditCard = useMemo(
+    () => creditCards.find((card) => card.id === relatedCreditCardId) || null,
+    [creditCards, relatedCreditCardId]
+  )
+
+  const firstMsiPaymentDate = useMemo(() => {
+    if (!selectedCreditCard || !transactionDate) return ''
+    return calculateFirstInstallmentPaymentDate(transactionDate, {
+      statementCutoffDay: selectedCreditCard.statement_cutoff_day,
+      paymentDueDay: selectedCreditCard.payment_due_day,
+    })
+  }, [selectedCreditCard, transactionDate])
+
+  useEffect(() => {
+    if (!selectedCreditCard || transactionType !== 'credit_card_purchase' || !isMsi) return
+
+    setInstallmentChargeDay(String(selectedCreditCard.payment_due_day))
+
+    if (msiTimingMode === 'new') {
+      setInstallmentCurrentNumber('1')
+      setInstallmentStartDate(firstMsiPaymentDate)
+    }
+  }, [firstMsiPaymentDate, isMsi, msiTimingMode, selectedCreditCard, transactionType])
+
   const handleTypeChange = (value: TransactionType) => {
     setTransactionType(value)
     setMessage('')
@@ -162,6 +190,7 @@ export default function NuevoMovimientoPage() {
     setRelatedDebtId('')
     setAffectsBalance(true)
     setIsMsi(false)
+    setMsiTimingMode('new')
     setMsiCaptureMode('total')
     setInstallmentDescription('')
     setInstallmentMonthlyAmount('')
@@ -608,7 +637,12 @@ export default function NuevoMovimientoPage() {
                       type="checkbox"
                       className="mt-1 h-5 w-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                       checked={isMsi}
-                      onChange={(e) => setIsMsi(e.target.checked)}
+                      onChange={(e) => {
+                        setIsMsi(e.target.checked)
+                        if (e.target.checked) {
+                          setMsiTimingMode('new')
+                        }
+                      }}
                     />
                     <div>
                       <p className="text-sm font-bold text-slate-900">Es compra a MSI</p>
@@ -622,11 +656,39 @@ export default function NuevoMovimientoPage() {
                 {isMsi ? (
                   <>
                     <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Tipo de MSI</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setMsiTimingMode('new')}
+                          className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiTimingMode === 'new' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                        >
+                          Compra nueva
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMsiTimingMode('historical')}
+                          className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiTimingMode === 'historical' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
+                        >
+                          MSI histórico
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs font-bold text-slate-500">
+                        {msiTimingMode === 'new'
+                          ? 'Usamos la fecha de compra, el corte y el límite de pago de la tarjeta.'
+                          : 'Úsalo para una compra que ya aparece en tu estado de cuenta.'}
+                      </p>
+                    </div>
+
+                    <div className="col-span-2">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Capturar MSI por</label>
                       <div className="grid grid-cols-2 gap-3">
                         <button
                           type="button"
-                          onClick={() => setMsiCaptureMode('total')}
+                          onClick={() => {
+                            setMsiCaptureMode('total')
+                            setInstallmentMonthlyAmount('')
+                          }}
                           className={`rounded-2xl border-2 px-4 py-4 text-sm font-black transition-all ${msiCaptureMode === 'total' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 bg-white text-slate-700 hover:border-slate-300'}`}
                         >
                           Total de compra
@@ -668,11 +730,25 @@ export default function NuevoMovimientoPage() {
                       <input
                         type="number"
                         step="0.01"
-                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
-                        value={installmentMonthlyAmount}
-                        onChange={(e) => setInstallmentMonthlyAmount(e.target.value)}
-                        placeholder="0.00"
+                        readOnly={msiCaptureMode === 'total'}
+                        className={`w-full rounded-2xl border-2 p-4 font-bold focus:ring-0 transition-all text-lg ${msiCaptureMode === 'total' ? 'border-sky-100 bg-sky-50/60 font-mono text-slate-900' : 'border-slate-100 text-slate-900 focus:border-slate-900'}`}
+                        value={
+                          msiCaptureMode === 'total'
+                            ? (installmentMonthlyAmountPreview > 0 ? installmentMonthlyAmountPreview.toFixed(2) : '')
+                            : installmentMonthlyAmount
+                        }
+                        onChange={(e) => {
+                          if (msiCaptureMode === 'monthly') {
+                            setInstallmentMonthlyAmount(e.target.value)
+                          }
+                        }}
+                        placeholder={msiCaptureMode === 'total' ? 'Se calcula automáticamente' : '0.00'}
                       />
+                      {msiCaptureMode === 'total' ? (
+                        <p className="mt-1.5 text-xs text-sky-700 font-bold">
+                          Se calcula dividiendo el monto total entre los meses.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
@@ -691,38 +767,58 @@ export default function NuevoMovimientoPage() {
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Próxima mensualidad</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                        {msiTimingMode === 'new' ? 'Mensualidad inicial' : 'Próxima mensualidad'}
+                      </label>
                       <input
                         type="number"
                         min="1"
                         className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        readOnly={msiTimingMode === 'new'}
                         value={installmentCurrentNumber}
                         onChange={(e) => setInstallmentCurrentNumber(e.target.value)}
                         placeholder="1"
                       />
+                      {msiTimingMode === 'historical' ? (
+                        <p className="mt-1.5 text-xs text-slate-500 font-bold">
+                          Captura la mensualidad que sigue según tu estado de cuenta.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Día de cargo</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Día límite de pago</label>
                       <input
                         type="number"
                         min="1"
                         max="31"
-                        className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        readOnly
+                        className="w-full rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 font-mono font-bold text-slate-900 focus:ring-0 transition-all text-lg"
                         value={installmentChargeDay}
-                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
-                        placeholder="15"
+                        onChange={() => undefined}
+                        placeholder={selectedCreditCard ? String(selectedCreditCard.payment_due_day) : '15'}
                       />
+                      <p className="mt-1.5 text-xs text-sky-700 font-bold">
+                        Se toma automáticamente de la tarjeta.
+                      </p>
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Fecha de inicio</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                        {msiTimingMode === 'new' ? 'Primera fecha límite de pago' : 'Fecha del próximo pago'}
+                      </label>
                       <input
                         type="date"
                         className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
+                        readOnly={msiTimingMode === 'new'}
                         value={installmentStartDate}
                         onChange={(e) => setInstallmentStartDate(e.target.value)}
                       />
+                      {msiTimingMode === 'new' && selectedCreditCard ? (
+                        <p className="mt-1.5 text-xs text-sky-700 font-bold">
+                          Corte día {selectedCreditCard.statement_cutoff_day}; pago límite día {selectedCreditCard.payment_due_day}.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="col-span-2 md:col-span-1">

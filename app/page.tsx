@@ -29,7 +29,6 @@ import { Panel } from '@/components/ui/Panel'
 import {
   getPendingInstallmentAmount,
   getInstallmentDisplayState,
-  isInstallmentDueThisMonth,
   syncInstallmentPlans,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
@@ -57,6 +56,19 @@ import {
 import Link from 'next/link'
 
 type InstallmentPlan = CreditCardInstallment
+type PaymentFilter = 'all' | 'cash' | 'credit_card'
+
+function currentMonthKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+function monthRange(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number)
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 0, 23, 59, 59, 999)
+  return { start, end, month, year }
+}
 
 export default function Home() {
   const supabase = createClient()
@@ -75,15 +87,15 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [chartsReady, setChartsReady] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey)
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
+  const [selectedCardId, setSelectedCardId] = useState('all')
 
   const loadDashboard = useCallback(async () => {
     setLoadError('')
     setLoading(true)
     try {
-      const today = new Date()
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-      const currentMonth = today.getMonth() + 1
-      const currentYear = today.getFullYear()
+      const { start, end, month: currentMonth, year: currentYear } = monthRange(selectedMonth)
 
       const [
         { data: accountsData, error: accountsError },
@@ -99,7 +111,11 @@ export default function Home() {
       ] = await Promise.all([
         supabase.from('accounts').select('*').eq('is_active', true).order('name'),
         supabase.from('transactions').select('*').order('transaction_date', { ascending: false }).limit(5),
-        supabase.from('transactions').select('*').gte('transaction_date', startOfMonth.toISOString()),
+        supabase
+          .from('transactions')
+          .select('*')
+          .gte('transaction_date', start.toISOString())
+          .lte('transaction_date', end.toISOString()),
         supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }).limit(5),
         supabase.from('categories').select('*'),
         supabase.from('recurring_charges').select('*').eq('is_active', true),
@@ -154,7 +170,7 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
-  }, [supabase])
+  }, [selectedMonth, supabase])
 
   const initialize = useCallback(async () => {
     setLoading(true)
@@ -182,29 +198,91 @@ export default function Home() {
     [categories]
   )
 
+  const filteredMonthTransactions = useMemo(
+    () =>
+      monthTransactions.filter((tx) => {
+        if (paymentFilter === 'cash' && tx.transaction_type.startsWith('credit_card')) return false
+        if (paymentFilter === 'credit_card' && !tx.transaction_type.startsWith('credit_card')) return false
+        if (selectedCardId !== 'all' && tx.related_credit_card_id !== selectedCardId) return false
+        return true
+      }),
+    [monthTransactions, paymentFilter, selectedCardId]
+  )
+
+  const msiPurchaseIds = useMemo(
+    () => new Set(installments.map((plan) => plan.purchase_transaction_id).filter(Boolean) as string[]),
+    [installments]
+  )
+
+  const selectedMonthEnd = useMemo(() => monthRange(selectedMonth).end, [selectedMonth])
+
+  const pendingInstallmentAmountForDashboard = useCallback(
+    (plan: CreditCardInstallment) => getPendingInstallmentAmount(plan, selectedMonthEnd),
+    [selectedMonthEnd]
+  )
+
+  useEffect(() => {
+    if (paymentFilter === 'cash' && selectedCardId !== 'all') {
+      setSelectedCardId('all')
+    }
+  }, [paymentFilter, selectedCardId])
+
+  const filteredInstallmentsForDashboard = useMemo(
+    () =>
+      installments.filter((plan) => {
+        if (paymentFilter === 'cash') return false
+        if (selectedCardId !== 'all' && plan.credit_card_id !== selectedCardId) return false
+        return true
+      }),
+    [installments, paymentFilter, selectedCardId]
+  )
+
+  const pendingInstallmentPlans = useMemo(
+    () =>
+      filteredInstallmentsForDashboard.filter(
+        (plan) => pendingInstallmentAmountForDashboard(plan) > 0
+      ),
+    [filteredInstallmentsForDashboard, pendingInstallmentAmountForDashboard]
+  )
+
+  const monthInstallmentPlans = useMemo(
+    () => pendingInstallmentPlans.slice(0, 5),
+    [pendingInstallmentPlans]
+  )
+
+  const installmentBudgetAmounts = useMemo(() => {
+    const amounts = new Map<string, number>()
+
+    pendingInstallmentPlans.forEach((plan) => {
+      if (!plan.category_id) return
+      amounts.set(
+        plan.category_id,
+        Number(amounts.get(plan.category_id) || 0) + pendingInstallmentAmountForDashboard(plan)
+      )
+    })
+
+    return amounts
+  }, [pendingInstallmentPlans, pendingInstallmentAmountForDashboard])
+
   const budgetRows = useMemo<BudgetProgress[]>(
-    () => buildBudgetRows(budgets, monthTransactions, categoryMap),
-    [budgets, monthTransactions, categoryMap]
+    () => buildBudgetRows(budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts),
+    [budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts]
   )
 
   const metrics = useMemo(
     () =>
       buildDashboardMetrics(
         accounts,
-        monthTransactions,
+        filteredMonthTransactions,
         recurring,
         debts,
-        installments,
+        filteredInstallmentsForDashboard,
         budgetRows,
         getPendingRecurringAmount,
-        getPendingInstallmentAmount
+        pendingInstallmentAmountForDashboard,
+        msiPurchaseIds
       ),
-    [accounts, monthTransactions, recurring, debts, installments, budgetRows]
-  )
-
-  const monthInstallmentPlans = useMemo(
-    () => installments.filter((plan) => isInstallmentDueThisMonth(plan)).slice(0, 5),
-    [installments]
+    [accounts, filteredMonthTransactions, recurring, debts, filteredInstallmentsForDashboard, budgetRows, pendingInstallmentAmountForDashboard, msiPurchaseIds]
   )
 
   const dueRecurringCharges = useMemo(
@@ -262,8 +340,8 @@ export default function Home() {
   ]
 
   const categoryChartData = useMemo(
-    () => buildCategoryChartData(monthTransactions, categories),
-    [monthTransactions, categories]
+    () => buildCategoryChartData(filteredMonthTransactions, categories, installmentBudgetAmounts),
+    [filteredMonthTransactions, categories, installmentBudgetAmounts]
   )
 
   const logout = async () => {
@@ -344,8 +422,55 @@ export default function Home() {
           </div>
         )}
 
+        <Panel title="Filtros del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta para leer el gasto real del periodo">
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Mes</span>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value || currentMonthKey())}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Medio de pago</span>
+              <select
+                value={paymentFilter}
+                onChange={(event) => setPaymentFilter(event.target.value as PaymentFilter)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              >
+                <option value="all">Todos</option>
+                <option value="cash">Efectivo / débito</option>
+                <option value="credit_card">Tarjeta de crédito</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Tarjeta</span>
+              <select
+                value={selectedCardId}
+                onChange={(event) => setSelectedCardId(event.target.value)}
+                disabled={paymentFilter === 'cash'}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <option value="all">Todas las tarjetas</option>
+                {creditCards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+            Las compras a MSI se cuentan por mensualidad pendiente al cierre del mes seleccionado, no por el total de la compra.
+          </p>
+        </Panel>
+
         {/* Gráficas Inteligentes */}
-        <div className="grid gap-6 lg:grid-cols-12 mb-8">
+        <div className="grid gap-6 lg:grid-cols-12 mb-8 mt-8">
           <div className="lg:col-span-8">
             <Panel title="Flujo del Mes" subtitle="Compara ingreso, gasto generado y salida real de efectivo">
               <div className="min-w-0 h-80 w-full pt-4">
