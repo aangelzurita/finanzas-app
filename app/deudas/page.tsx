@@ -107,6 +107,12 @@ export default function DeudasPage() {
                     <KpiCard title="Deudas Activas" value={String(totals.cantidad)} />
                 </div>
 
+                {message && (
+                    <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 shadow-sm">
+                        {message}
+                    </div>
+                )}
+
                 <div className="grid gap-6">
                     {debts.map((debt) => {
                         const total = Number(debt.total_amount || 0)

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { validateDebtAmounts } from '@/lib/debt-validation'
 
 export default function NuevaDeudaPage() {
     const supabase = createClient()
@@ -33,17 +34,36 @@ export default function NuevaDeudaPage() {
         setMessage('')
 
         const { data: sessionData } = await supabase.auth.getSession()
-        if (!sessionData.session) return
+        if (!sessionData.session) {
+            setMessage('No hay sesión activa.')
+            setSaving(false)
+            return
+        }
+
+        const totalAmount = Number(form.total_amount)
+        const currentBalance = Number(form.initial_balance)
+        const monthlyPayment = form.monthly_payment ? Number(form.monthly_payment) : null
+        const validationError = validateDebtAmounts({
+            totalAmount,
+            currentBalance,
+            monthlyPayment,
+        })
+
+        if (validationError) {
+            setMessage(validationError)
+            setSaving(false)
+            return
+        }
 
         const payload = {
             user_id: sessionData.session.user.id,
             name: form.name,
             institution: form.institution || null,
-            original_amount: Number(form.total_amount),
-            total_amount: Number(form.total_amount),
-            initial_balance: Number(form.initial_balance),
-            current_balance: Number(form.initial_balance), // Al inicio, el saldo actual es el inicial
-            monthly_payment: form.monthly_payment ? Number(form.monthly_payment) : null,
+            original_amount: totalAmount,
+            total_amount: totalAmount,
+            initial_balance: currentBalance,
+            current_balance: currentBalance,
+            monthly_payment: monthlyPayment,
             interest_rate: form.interest_rate ? Number(form.interest_rate) : null,
             start_date: form.start_date,
             notes: form.notes || null,
@@ -122,6 +142,8 @@ export default function NuevaDeudaPage() {
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Monto Total Original</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0.01"
                                 required
                                 name="total_amount"
                                 value={form.total_amount}
@@ -135,6 +157,8 @@ export default function NuevaDeudaPage() {
                             <label className="block text-[10px] font-black text-rose-400 uppercase tracking-[0.2em] mb-2">Saldo Pendiente Actual</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0"
                                 required
                                 name="initial_balance"
                                 value={form.initial_balance}
@@ -148,6 +172,8 @@ export default function NuevaDeudaPage() {
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Mensualidad (Opcional)</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0"
                                 name="monthly_payment"
                                 value={form.monthly_payment}
                                 onChange={handleChange}

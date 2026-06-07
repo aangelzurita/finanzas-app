@@ -546,6 +546,9 @@ export default function TarjetaMovimientoPage() {
                     <p className="mt-1 text-xs text-slate-500">
                       Guarda la compra y crea el plan MSI automáticamente.
                     </p>
+                    <p className="mt-1 text-xs font-bold text-sky-700">
+                      El saldo usado de la tarjeta aumenta por el total; el presupuesto mensual se afecta por la mensualidad.
+                    </p>
                   </div>
                 </label>
 
@@ -717,6 +720,9 @@ export default function TarjetaMovimientoPage() {
 
                     <div className="md:col-span-2 rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 text-sm font-bold text-slate-700">
                       Total calculado: {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} · Mensualidad: {installmentMonthlyAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                      <p className="mt-2 text-xs text-sky-700">
+                        Saldo de tarjeta por total; presupuesto del mes por mensualidad.
+                      </p>
                     </div>
 
                     <FormField label="Notas MSI">

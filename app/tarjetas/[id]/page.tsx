@@ -347,6 +347,9 @@ export default function TarjetaDetallePage() {
             <div>
               <h2 className="text-2xl font-extrabold text-slate-900">Meses Sin Intereses</h2>
               <p className="text-sm text-slate-400 mt-1">Seguimiento de compras diferidas ligadas a esta tarjeta.</p>
+              <p className="mt-2 text-xs font-bold text-sky-700">
+                El saldo usado refleja el total de la compra; el presupuesto mensual considera la mensualidad.
+              </p>
             </div>
 
             <Link

@@ -1,4 +1,5 @@
 import { formatMoney } from '@/lib/utils'
+import { isBudgetAffectingTransaction, isCompletedTransaction } from '@/lib/budget-rules'
 import {
   getInstallmentChargeDate,
   getInstallmentDisplayState,
@@ -26,14 +27,6 @@ export type Transaction = {
   related_installment_id?: string | null
   affects_budget?: boolean
   status?: string
-}
-
-function isCompletedTransaction(tx: Transaction) {
-  return (tx.status || 'completed') === 'completed'
-}
-
-function isBudgetExpense(tx: Transaction) {
-  return isCompletedTransaction(tx) && Boolean(tx.affects_budget)
 }
 
 export type Reminder = {
@@ -120,15 +113,15 @@ export function buildBudgetRows(
   budgets: Budget[],
   monthTransactions: Transaction[],
   categoryMap: Map<string, string>,
-  installmentBudgetAmounts: Map<string, number> = new Map()
+  installmentBudgetAmounts: Map<string, number> = new Map(),
+  msiPurchaseIds: Set<string> = new Set()
 ) {
   return budgets
     .map((budget) => {
       const spent = monthTransactions
         .filter((tx) =>
           tx.category_id === budget.category_id &&
-          isBudgetExpense(tx) &&
-          tx.transaction_type === 'expense'
+          isBudgetAffectingTransaction(tx, msiPurchaseIds)
         )
         .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
         + Number(installmentBudgetAmounts.get(budget.category_id) || 0)
@@ -294,13 +287,14 @@ export function buildConsolidatedCommitments(
 export function buildCategoryChartData(
   monthTransactions: Transaction[],
   categories: Category[],
-  installmentBudgetAmounts: Map<string, number> = new Map()
+  installmentBudgetAmounts: Map<string, number> = new Map(),
+  msiPurchaseIds: Set<string> = new Set()
 ) {
   const counts = new Map<string, number>()
   const categoryMap = new Map(categories.map((category) => [category.id, category.name]))
 
   monthTransactions
-    .filter((tx) => isBudgetExpense(tx) && tx.transaction_type === 'expense')
+    .filter((tx) => isBudgetAffectingTransaction(tx, msiPurchaseIds))
     .forEach((tx) => {
       const categoryName = tx.category_id ? (categoryMap.get(tx.category_id) || 'Otros') : 'Sin categoría'
       counts.set(categoryName, (counts.get(categoryName) || 0) + Number(tx.amount))

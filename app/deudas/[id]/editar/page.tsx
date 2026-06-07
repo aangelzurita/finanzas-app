@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { validateDebtAmounts } from '@/lib/debt-validation'
 
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
 
@@ -24,6 +25,7 @@ export default function EditarDeudaPage() {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState('')
+    const [messageType, setMessageType] = useState<'error' | 'success' | ''>('')
     const [history, setHistory] = useState<Transaction[]>([])
 
     const [form, setForm] = useState({
@@ -50,6 +52,7 @@ export default function EditarDeudaPage() {
 
         if (debtRes.error || !debtRes.data) {
             setMessage(debtRes.error?.message || 'No se encontró la deuda.')
+            setMessageType('error')
         } else {
             const data = debtRes.data
             setForm({
@@ -75,13 +78,30 @@ export default function EditarDeudaPage() {
         e.preventDefault()
         setSaving(true)
         setMessage('')
+        setMessageType('')
+
+        const totalAmount = Number(form.total_amount)
+        const currentBalance = Number(form.current_balance)
+        const monthlyPayment = form.monthly_payment ? Number(form.monthly_payment) : null
+        const validationError = validateDebtAmounts({
+            totalAmount,
+            currentBalance,
+            monthlyPayment,
+        })
+
+        if (validationError) {
+            setMessage(validationError)
+            setMessageType('error')
+            setSaving(false)
+            return
+        }
 
         const payload = {
             name: form.name,
             institution: form.institution || null,
-            total_amount: Number(form.total_amount),
-            current_balance: Number(form.current_balance),
-            monthly_payment: form.monthly_payment ? Number(form.monthly_payment) : null,
+            total_amount: totalAmount,
+            current_balance: currentBalance,
+            monthly_payment: monthlyPayment,
             interest_rate: form.interest_rate ? Number(form.interest_rate) : null,
             status: form.status,
             notes: form.notes || null,
@@ -95,6 +115,7 @@ export default function EditarDeudaPage() {
 
         if (error) {
             setMessage(`Error: ${error.message}`)
+            setMessageType('error')
             setSaving(false)
         } else {
             router.push('/deudas')
@@ -113,6 +134,7 @@ export default function EditarDeudaPage() {
 
         if (error) {
             setMessage(`Error: ${error.message}`)
+            setMessageType('error')
             setSaving(false)
         } else {
             router.push('/deudas')
@@ -213,6 +235,8 @@ export default function EditarDeudaPage() {
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Monto Original</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0.01"
                                 required
                                 name="total_amount"
                                 value={form.total_amount}
@@ -225,6 +249,8 @@ export default function EditarDeudaPage() {
                             <label className="block text-[10px] font-black text-rose-400 uppercase tracking-[0.2em] mb-2">Saldo Pendiente Real</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0"
                                 required
                                 name="current_balance"
                                 value={form.current_balance}
@@ -237,6 +263,8 @@ export default function EditarDeudaPage() {
                             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Mensualidad (Opcional)</label>
                             <input
                                 type="number"
+                                step="0.01"
+                                min="0"
                                 name="monthly_payment"
                                 value={form.monthly_payment}
                                 onChange={handleChange}
@@ -295,8 +323,8 @@ export default function EditarDeudaPage() {
                     </div>
 
                     {message && (
-                        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-center">
-                            <p className="text-slate-600 font-bold">{message}</p>
+                        <div className={`rounded-2xl border p-4 text-center ${messageType === 'error' ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                            <p className={`font-bold ${messageType === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{message}</p>
                         </div>
                     )}
                 </form>

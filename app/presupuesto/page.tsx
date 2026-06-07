@@ -4,6 +4,11 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney } from '@/lib/utils'
+import { isBudgetAffectingTransaction } from '@/lib/budget-rules'
+import {
+  getPendingInstallmentAmount,
+  type CreditCardInstallment,
+} from '@/lib/credit-card-installments'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
 
@@ -22,6 +27,7 @@ type Category = {
 
 type Transaction = {
   id: string
+  transaction_type: string
   category_id: string | null
   amount: number
   transaction_date: string
@@ -36,6 +42,7 @@ export default function PresupuestoPage() {
   const [budgets, setBudgets] = useState<BudgetRow[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [installments, setInstallments] = useState<CreditCardInstallment[]>([])
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'error' | 'success' | ''>('')
   const [saving, setSaving] = useState(false)
@@ -49,6 +56,10 @@ export default function PresupuestoPage() {
   const today = new Date()
   const currentMonth = today.getMonth() + 1
   const currentYear = today.getFullYear()
+  const currentMonthEnd = useMemo(
+    () => new Date(currentYear, currentMonth, 0, 23, 59, 59, 999),
+    [currentMonth, currentYear]
+  )
 
   useEffect(() => {
     void initialize()
@@ -66,6 +77,7 @@ export default function PresupuestoPage() {
       { data: budgetsData, error: budgetsError },
       { data: categoriesData, error: categoriesError },
       { data: txData, error: txError },
+      { data: installmentData, error: installmentError },
     ] = await Promise.all([
       supabase
         .from('budgets')
@@ -80,16 +92,21 @@ export default function PresupuestoPage() {
         .order('name'),
       supabase
         .from('transactions')
-        .select('id, category_id, amount, transaction_date, affects_budget, status')
+        .select('id, transaction_type, category_id, amount, transaction_date, affects_budget, status')
         .eq('status', 'completed')
         .eq('affects_budget', true),
+      supabase
+        .from('credit_card_installments')
+        .select('*')
+        .neq('status', 'canceled'),
     ])
 
-    if (budgetsError || categoriesError || txError) {
+    if (budgetsError || categoriesError || txError || installmentError) {
       setMessage(
         budgetsError?.message ||
         categoriesError?.message ||
         txError?.message ||
+        installmentError?.message ||
         'Error al cargar datos'
       )
       setMessageType('error')
@@ -98,6 +115,7 @@ export default function PresupuestoPage() {
     setBudgets((budgetsData as BudgetRow[]) ?? [])
     setCategories((categoriesData as Category[]) ?? [])
     setTransactions((txData as Transaction[]) ?? [])
+    setInstallments((installmentData as CreditCardInstallment[]) ?? [])
     setLoading(false)
   }
 
@@ -171,7 +189,11 @@ export default function PresupuestoPage() {
     setSaving(false)
   }
 
-  const startEdit = (budget: any) => {
+  const startEdit = (budget: {
+    id: string
+    categoryId: string
+    budgetAmount: number
+  }) => {
     setEditingBudgetId(budget.id)
     setSelectedCategoryId(budget.categoryId)
     setBudgetAmount(String(budget.budgetAmount))
@@ -193,6 +215,25 @@ export default function PresupuestoPage() {
     return map
   }, [categories])
 
+  const msiPurchaseIds = useMemo(
+    () => new Set(installments.map((plan) => plan.purchase_transaction_id).filter(Boolean) as string[]),
+    [installments]
+  )
+
+  const installmentBudgetAmounts = useMemo(() => {
+    const amounts = new Map<string, number>()
+
+    installments.forEach((plan) => {
+      if (!plan.category_id || plan.status !== 'active') return
+      amounts.set(
+        plan.category_id,
+        Number(amounts.get(plan.category_id) || 0) + getPendingInstallmentAmount(plan, currentMonthEnd)
+      )
+    })
+
+    return amounts
+  }, [installments, currentMonthEnd])
+
   const rows = useMemo(() => {
     return budgets.map((budget) => {
       const spent = transactions
@@ -204,9 +245,14 @@ export default function PresupuestoPage() {
           const txMonth = txDate.getMonth() + 1
           const txYear = txDate.getFullYear()
 
-          return txMonth === budget.period_month && txYear === budget.period_year
+          return (
+            txMonth === budget.period_month &&
+            txYear === budget.period_year &&
+            isBudgetAffectingTransaction(tx, msiPurchaseIds)
+          )
         })
         .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
+        + Number(installmentBudgetAmounts.get(budget.category_id) || 0)
 
       const remaining = Number(budget.budget_amount || 0) - spent
       const progress = budget.budget_amount > 0 ? (spent / budget.budget_amount) * 100 : 0
@@ -221,7 +267,7 @@ export default function PresupuestoPage() {
         progress,
       }
     })
-  }, [budgets, transactions, categoryMap])
+  }, [budgets, transactions, categoryMap, msiPurchaseIds, installmentBudgetAmounts])
 
   const availableCategories = useMemo(() => {
     const usedIds = new Set(budgets.map(b => b.category_id))
@@ -290,7 +336,7 @@ export default function PresupuestoPage() {
       <section className="max-w-7xl mx-auto px-6 -mt-8">
         <div className="grid gap-6 md:grid-cols-3 mb-8">
           <KpiCard title="Presupuesto Total" value={formatMoney(totalBudget)} valueClassName="text-slate-900" />
-          <KpiCard title="Gastado Real" value={formatMoney(totalSpent)} valueClassName="text-rose-600" />
+          <KpiCard title="Gastado presupuestal" value={formatMoney(totalSpent)} valueClassName="text-rose-600" />
           <KpiCard
             title="Sobrante / Déficit"
             value={formatMoney(totalRemaining)}
@@ -304,6 +350,10 @@ export default function PresupuestoPage() {
             {message}
           </div>
         )}
+
+        <p className="mb-6 rounded-2xl bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm border border-slate-100">
+          Las compras normales con tarjeta cuentan como gasto presupuestal. En MSI, el saldo usado de la tarjeta aumenta por el total y el presupuesto mensual se afecta por la mensualidad.
+        </p>
 
         {showForm && (
           <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-2xl mb-8 animate-in fade-in slide-in-from-top-4 duration-300">

@@ -265,8 +265,8 @@ export default function Home() {
   }, [pendingInstallmentPlans, pendingInstallmentAmountForDashboard])
 
   const budgetRows = useMemo<BudgetProgress[]>(
-    () => buildBudgetRows(budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts),
-    [budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts]
+    () => buildBudgetRows(budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts, msiPurchaseIds),
+    [budgets, filteredMonthTransactions, categoryMap, installmentBudgetAmounts, msiPurchaseIds]
   )
 
   const metrics = useMemo(
@@ -340,8 +340,8 @@ export default function Home() {
   ]
 
   const categoryChartData = useMemo(
-    () => buildCategoryChartData(filteredMonthTransactions, categories, installmentBudgetAmounts),
-    [filteredMonthTransactions, categories, installmentBudgetAmounts]
+    () => buildCategoryChartData(filteredMonthTransactions, categories, installmentBudgetAmounts, msiPurchaseIds),
+    [filteredMonthTransactions, categories, installmentBudgetAmounts, msiPurchaseIds]
   )
 
   const logout = async () => {
@@ -393,14 +393,14 @@ export default function Home() {
         {/* KPIs Principales */}
         <div className="grid gap-6 md:grid-cols-4 mb-8">
           <KpiCard title="Efectivo Disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
-          <KpiCard title="Disponible tras pendientes" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+          <KpiCard title="Disponible estimado tras compromisos" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
           <KpiCard title="Deuda Total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
           <KpiCard title="MSI comprometido este mes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
         </div>
 
         <div className="grid gap-6 md:grid-cols-4 mb-8">
-          <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Expense + compras con TDC" />
-          <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Expense + pagos TDC + pagos de deuda" />
+          <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Efectivo/debito + compras con tarjeta" />
+          <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Pagos reales desde cuentas, incluidas tarjetas y deudas" />
           <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
           <KpiCard title="Presupuesto del mes" value={formatMoney(metrics.totalBudget)} valueClassName="text-slate-950" />
         </div>
@@ -465,7 +465,7 @@ export default function Home() {
             </label>
           </div>
           <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
-            Las compras a MSI se cuentan por mensualidad pendiente al cierre del mes seleccionado, no por el total de la compra.
+            En MSI, el saldo usado de la tarjeta sube por el total de la compra; el presupuesto del mes se afecta por la mensualidad pendiente.
           </p>
         </Panel>
 

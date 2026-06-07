@@ -58,6 +58,9 @@ export function InstallmentPlanForm({
       <div className="mb-8 border-b border-slate-100 pb-6">
         <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">{title}</h2>
         <p className="text-slate-400 text-sm mt-1">{subtitle}</p>
+        <p className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-xs font-bold text-sky-700">
+          En MSI, el saldo usado de la tarjeta aumenta por el total de la compra y el presupuesto mensual se afecta por la mensualidad.
+        </p>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
