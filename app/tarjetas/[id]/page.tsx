@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase-browser'
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
+import { reconcileCreditCard } from '@/lib/accounting/card-reconciliation'
 import {
   getPendingInstallmentAmount,
   getPendingInstallmentCount,
@@ -37,8 +38,10 @@ type Transaction = {
   description: string | null
   transaction_date: string
   related_credit_card_id: string | null
+  related_installment_id: string | null
   source_account_id: string | null
   status: string
+  affects_balance: boolean | null
 }
 
 type InstallmentPlan = CreditCardInstallment
@@ -98,8 +101,10 @@ export default function TarjetaDetallePage() {
             description,
             transaction_date,
             related_credit_card_id,
+            related_installment_id,
             source_account_id,
-            status
+            status,
+            affects_balance
           `)
           .eq('related_credit_card_id', cardId)
           .order('transaction_date', { ascending: false }),
@@ -151,6 +156,16 @@ export default function TarjetaDetallePage() {
       .filter((tx) => tx.transaction_type === 'credit_card_payment')
       .reduce((acc, tx) => acc + Number(tx.amount || 0), 0)
   }, [transactions])
+
+  const reconciliation = useMemo(() => {
+    if (!card) return null
+
+    return reconcileCreditCard({
+      currentBalance: Number(card.current_balance || 0),
+      transactions,
+      installments,
+    })
+  }, [card, transactions, installments])
 
   const activeInstallments = useMemo(
     () => installments.filter((plan) => plan.status === 'active' && getOutstandingInstallmentCount(plan) > 0),
@@ -305,6 +320,54 @@ export default function TarjetaDetallePage() {
           <KpiCard title="Disponible" value={formatMoney(available)} valueClassName="text-emerald-600" />
           <KpiCard title="% de uso" value={`${usagePercent.toFixed(1)}%`} valueClassName={usagePercent > 80 ? 'text-rose-600' : 'text-slate-900'} />
         </div>
+
+        {reconciliation && (
+          <div className="rounded-[2rem] border border-slate-100 bg-white p-6 shadow-lg mb-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-xl font-black text-slate-900">Conciliación de tarjeta</h2>
+                  <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-widest ${
+                    reconciliation.status === 'OK'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      : 'bg-amber-50 text-amber-700 border border-amber-100'
+                  }`}>
+                    {reconciliation.status}
+                  </span>
+                </div>
+                <p className="mt-2 max-w-3xl text-sm font-medium text-slate-500">
+                  Esta conciliación compara movimientos registrados contra el saldo actual de la tarjeta. Es una estimación y puede variar si existen saldos iniciales, ajustes históricos o movimientos no registrados.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-4">
+              <MiniStat label="Saldo registrado" value={formatMoney(reconciliation.registeredBalance)} />
+              <MiniStat label="Saldo esperado" value={formatMoney(reconciliation.expectedBalance)} />
+              <MiniStat
+                label="Diferencia"
+                value={formatMoney(reconciliation.difference)}
+                valueClassName={reconciliation.status === 'OK' ? 'text-emerald-600 font-black' : 'text-amber-600 font-black'}
+              />
+              <MiniStat label="Sin impacto" value={String(reconciliation.excludedTransactions)} />
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <div className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
+                Compras normales: <span className="text-slate-900">{formatMoney(reconciliation.normalPurchases)}</span>
+              </div>
+              <div className="rounded-2xl bg-sky-50 p-3 text-sm font-bold text-sky-700">
+                Compras MSI: <span>{formatMoney(reconciliation.msiPurchases)}</span>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+                Pagos: <span>{formatMoney(reconciliation.payments)}</span>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
+                Reembolsos: <span>{formatMoney(reconciliation.refunds)}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-[2.5rem] border border-slate-100 bg-white p-8 shadow-lg mb-8">
           <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
