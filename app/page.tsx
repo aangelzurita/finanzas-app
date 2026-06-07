@@ -390,39 +390,13 @@ export default function Home() {
       </section>
 
       <section className="max-w-7xl mx-auto px-6 -mt-8 relative z-20">
-        {/* KPIs Principales */}
-        <div className="grid gap-6 md:grid-cols-4 mb-8">
-          <KpiCard title="Efectivo Disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
-          <KpiCard title="Disponible estimado tras compromisos" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
-          <KpiCard title="Deuda Total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
-          <KpiCard title="MSI comprometido este mes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-4 mb-8">
-          <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Efectivo/debito + compras con tarjeta" />
-          <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Pagos reales desde cuentas, incluidas tarjetas y deudas" />
-          <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
-          <KpiCard title="Presupuesto del mes" value={formatMoney(metrics.totalBudget)} valueClassName="text-slate-950" />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
-          <KpiCard title="Gastado contra presupuesto" value={formatMoney(metrics.totalBudgetSpent)} valueClassName="text-rose-600" />
-          <KpiCard
-            title="Margen presupuestal"
-            value={formatMoney(metrics.totalBudgetRemaining)}
-            subtitle={metrics.overBudgetCount > 0 ? `${metrics.overBudgetCount} categoría(s) excedida(s)` : 'Sin categorías excedidas'}
-            valueClassName={metrics.totalBudgetRemaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}
-          />
-          <KpiCard title="Pagos de deuda" value={formatMoney(metrics.debtPayments)} valueClassName="text-amber-600" subtitle="Salida real sin categoría de gasto" />
-        </div>
-
         {loadError && (
           <div className="mb-8 rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm font-bold text-rose-700 shadow-sm">
             {loadError}
           </div>
         )}
 
-        <Panel title="Filtros del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta para leer el gasto real del periodo">
+        <Panel title="Lectura del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta antes de revisar disponibilidad, presión, riesgo y fugas">
           <div className="grid gap-4 md:grid-cols-3">
             <label className="block">
               <span className="text-xs font-black uppercase tracking-widest text-slate-400">Mes</span>
@@ -469,73 +443,243 @@ export default function Home() {
           </p>
         </Panel>
 
-        {/* Gráficas Inteligentes */}
-        <div className="grid gap-6 lg:grid-cols-12 mb-8 mt-8">
-          <div className="lg:col-span-8">
-            <Panel title="Flujo del Mes" subtitle="Compara ingreso, gasto generado y salida real de efectivo">
-              <div className="min-w-0 h-80 w-full pt-4">
-                {chartsReady ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={flowChartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 'bold' }} />
-                      <YAxis hide />
-                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                      <Bar dataKey="value" radius={[12, 12, 12, 12]} barSize={60}>
-                        {flowChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
-                    Cargando gráfico...
-                  </div>
-                )}
-              </div>
-            </Panel>
+        <section className="mt-8 mb-8">
+          <div className="mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">1. Dinero real disponible</p>
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">Lo que puedes usar sin perder de vista compromisos</h2>
           </div>
+          <div className="grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-6">
+              <KpiCard title="Disponible estimado tras compromisos" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+            </div>
+            <div className="lg:col-span-3">
+              <KpiCard title="Efectivo disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
+            </div>
+            <div className="lg:col-span-3">
+              <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Pagos reales desde cuentas, incluidas tarjetas y deudas" />
+            </div>
+          </div>
+        </section>
 
-          <div className="lg:col-span-4">
-            <Panel title="Top categorías / fugas" subtitle="Gasto generado por categoría del mes">
-              <div className="min-w-0 h-80 w-full flex flex-col items-center">
-                {chartsReady ? (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <PieChart>
-                      <Pie
-                        data={categoryChartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {categoryChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={['#0f172a', '#334155', '#475569', '#64748b', '#94a3b8'][index % 5]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-[200px] w-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
-                    Cargando gráfico...
-                  </div>
-                )}
-                <div className="w-full space-y-2 mt-4">
-                  {categoryChartData.slice(0, 3).map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-500 uppercase tracking-tighter">{item.name}</span>
-                      <span className="text-slate-950">{formatMoney(item.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Panel>
+        <section className="mb-8">
+          <div className="mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-600">2. Pagos que presionan</p>
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">Lo que exige atención antes de gastar más</h2>
           </div>
-        </div>
+          <div className="grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-5">
+              <Panel title="Compromisos próximos" subtitle="Vista consolidada de vencimientos, pagos y cargos pendientes">
+            {consolidatedCommitments.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 font-medium italic">
+                No hay compromisos próximos registrados.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {consolidatedCommitments.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between py-4">
+                    <div>
+                      <p className="font-bold text-slate-900">{item.title}</p>
+                      <p className="text-sm text-slate-500">
+                        {formatDate(item.dueDate)} · {item.meta}
+                      </p>
+                    </div>
+                    <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+              </Panel>
+            </div>
+
+            <div className="lg:col-span-4">
+              <Panel title="Próximos pagos TDC" subtitle="Tarjetas que requieren atención este ciclo">
+            {upcomingCardPayments.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 font-medium italic">
+                No hay tarjetas con pago pendiente por ahora.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {upcomingCardPayments.map((card) => {
+                  const paymentDays = daysUntilDate(card.dueDate)
+                  const cutoffDays = daysUntilDate(card.cutoffDate)
+                  const noInterestAmount = Number(card.no_interest_payment || 0)
+                  const minimumAmount = Number(card.minimum_payment || 0)
+
+                  return (
+                    <div key={card.id} className="rounded-2xl border border-slate-100 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-bold text-slate-900">{card.name}</p>
+                          <p className="text-sm text-slate-500">
+                            Corte {formatDate(card.cutoffDate)} · Pago {formatDate(card.dueDate)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-amber-600">{formatMoney(noInterestAmount || minimumAmount)}</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                            {noInterestAmount > 0 ? 'No intereses' : 'Pago mínimo'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al corte</p>
+                          <p className="mt-1 text-lg font-black text-slate-900">{cutoffDays}</p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al pago</p>
+                          <p className={`mt-1 text-lg font-black ${paymentDays <= 3 ? 'text-rose-600' : 'text-slate-900'}`}>{paymentDays}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <Link href="/tarjetas" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
+                  Revisar tarjetas
+                </Link>
+              </div>
+            )}
+              </Panel>
+            </div>
+
+            <div className="lg:col-span-3 space-y-6">
+              <KpiCard title="MSI comprometido este mes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
+              <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
+              <KpiCard title="Pagos de deuda" value={formatMoney(metrics.debtPayments)} valueClassName="text-amber-600" subtitle="Salida real sin categoría de gasto" />
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <div className="mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-600">3. Riesgo financiero</p>
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">Deuda, presupuesto y margen en una sola lectura</h2>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-4 space-y-6">
+              <KpiCard title="Deuda total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
+              <KpiCard title="Presupuesto del mes" value={formatMoney(metrics.totalBudget)} valueClassName="text-slate-950" />
+              <KpiCard title="Gastado contra presupuesto" value={formatMoney(metrics.totalBudgetSpent)} valueClassName="text-rose-600" />
+              <KpiCard
+                title="Margen presupuestal"
+                value={formatMoney(metrics.totalBudgetRemaining)}
+                subtitle={metrics.overBudgetCount > 0 ? `${metrics.overBudgetCount} categoría(s) excedida(s)` : 'Sin categorías excedidas'}
+                valueClassName={metrics.totalBudgetRemaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}
+              />
+            </div>
+
+            <div className="lg:col-span-8">
+              <Panel title="Presupuesto del mes" subtitle="Categorías con límite activo, ordenadas por presión">
+            {budgetRows.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 font-medium italic">
+                No hay presupuestos definidos este mes.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(budgetHighlights.length > 0 ? budgetHighlights : budgetRows.slice(0, 5)).map((row) => (
+                  <div key={row.id} className="rounded-2xl border border-slate-100 p-4">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <p className="font-bold text-slate-900">{row.categoryName}</p>
+                        <p className="text-sm text-slate-500">
+                          {formatMoney(row.spent)} de {formatMoney(row.budgetAmount)}
+                        </p>
+                      </div>
+                      <p className={`font-black ${row.remaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {row.remaining >= 0 ? formatMoney(row.remaining) : `-${formatMoney(Math.abs(row.remaining))}`}
+                      </p>
+                    </div>
+                    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={`h-full rounded-full ${row.progress < 70 ? 'bg-emerald-500' : row.progress < 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                        style={{ width: `${Math.min(row.progress, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <Link href="/presupuesto" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
+                  Abrir control presupuestal
+                </Link>
+              </div>
+            )}
+              </Panel>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <div className="mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-sky-600">4. Dónde se va el dinero</p>
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">Gasto generado, flujo y categorías principales</h2>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-4 space-y-6">
+              <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Efectivo/debito + compras con tarjeta" />
+              <Panel title="Top categorías / fugas" subtitle="Gasto generado por categoría del mes">
+                <div className="min-w-0 h-80 w-full flex flex-col items-center">
+                  {chartsReady ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={categoryChartData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {categoryChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={['#0f172a', '#334155', '#475569', '#64748b', '#94a3b8'][index % 5]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-[200px] w-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
+                      Cargando gráfico...
+                    </div>
+                  )}
+                  <div className="w-full space-y-2 mt-4">
+                    {categoryChartData.slice(0, 3).map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-500 uppercase tracking-tighter">{item.name}</span>
+                        <span className="text-slate-950">{formatMoney(item.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Panel>
+            </div>
+
+            <div className="lg:col-span-8">
+              <Panel title="Flujo del mes" subtitle="Compara ingreso, gasto generado y salida real de efectivo">
+                <div className="min-w-0 h-80 w-full pt-4">
+                  {chartsReady ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={flowChartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 'bold' }} />
+                        <YAxis hide />
+                        <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                        <Bar dataKey="value" radius={[12, 12, 12, 12]} barSize={60}>
+                          {flowChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
+                      Cargando gráfico...
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            </div>
+          </div>
+        </section>
 
         <div className="grid gap-6 lg:grid-cols-2 mb-8">
           <Panel title="MSI pendientes" subtitle="Mensualidades activas que ya toca procesar">
@@ -584,137 +728,6 @@ export default function Home() {
                 ))}
               </div>
             )}
-          </Panel>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2 mb-8">
-          <Panel title="Compromisos próximos" subtitle="Vista consolidada de vencimientos, pagos y cargos pendientes">
-            {consolidatedCommitments.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay compromisos próximos registrados.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {consolidatedCommitments.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-4">
-                    <div>
-                      <p className="font-bold text-slate-900">{item.title}</p>
-                      <p className="text-sm text-slate-500">
-                        {formatDate(item.dueDate)} · {item.meta}
-                      </p>
-                    </div>
-                    <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Próximos pagos TDC" subtitle="Tarjetas que requieren atención este ciclo">
-            {upcomingCardPayments.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay tarjetas con pago pendiente por ahora.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {upcomingCardPayments.map((card) => {
-                  const paymentDays = daysUntilDate(card.dueDate)
-                  const cutoffDays = daysUntilDate(card.cutoffDate)
-                  const noInterestAmount = Number(card.no_interest_payment || 0)
-                  const minimumAmount = Number(card.minimum_payment || 0)
-
-                  return (
-                    <div key={card.id} className="rounded-2xl border border-slate-100 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-bold text-slate-900">{card.name}</p>
-                          <p className="text-sm text-slate-500">
-                            Corte {formatDate(card.cutoffDate)} · Pago {formatDate(card.dueDate)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-black text-amber-600">{formatMoney(noInterestAmount || minimumAmount)}</p>
-                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                            {noInterestAmount > 0 ? 'No intereses' : 'Pago mínimo'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-slate-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al corte</p>
-                          <p className="mt-1 text-lg font-black text-slate-900">{cutoffDays}</p>
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al pago</p>
-                          <p className={`mt-1 text-lg font-black ${paymentDays <= 3 ? 'text-rose-600' : 'text-slate-900'}`}>{paymentDays}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Link href="/tarjetas" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
-                  Revisar tarjetas
-                </Link>
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2 mb-8">
-          <Panel title="Presupuesto del mes" subtitle="Cómo van las categorías con límite activo">
-            {budgetRows.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay presupuestos definidos este mes.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(budgetHighlights.length > 0 ? budgetHighlights : budgetRows.slice(0, 5)).map((row) => (
-                  <div key={row.id} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <div>
-                        <p className="font-bold text-slate-900">{row.categoryName}</p>
-                        <p className="text-sm text-slate-500">
-                          {formatMoney(row.spent)} de {formatMoney(row.budgetAmount)}
-                        </p>
-                      </div>
-                      <p className={`font-black ${row.remaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {row.remaining >= 0 ? formatMoney(row.remaining) : `-${formatMoney(Math.abs(row.remaining))}`}
-                      </p>
-                    </div>
-                    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className={`h-full rounded-full ${row.progress < 70 ? 'bg-emerald-500' : row.progress < 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                        style={{ width: `${Math.min(row.progress, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                <Link href="/presupuesto" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
-                  Abrir control presupuestal
-                </Link>
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Navegación rápida" subtitle="Entradas directas a los módulos que más se cruzan con el dashboard">
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { label: 'Presupuesto', href: '/presupuesto' },
-                { label: 'Tarjetas', href: '/tarjetas' },
-                { label: 'Recordatorios', href: '/recordatorios' },
-                { label: 'Recurrentes', href: '/recurrentes' },
-                { label: 'MSI', href: '/tarjetas' },
-                { label: 'Movimientos', href: '/movimientos' },
-              ].map((item) => (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="rounded-2xl border border-slate-100 bg-white px-4 py-5 text-center text-sm font-black uppercase tracking-tighter text-slate-900 transition hover:border-slate-200 hover:bg-slate-50"
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
           </Panel>
         </div>
 

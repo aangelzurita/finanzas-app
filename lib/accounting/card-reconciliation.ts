@@ -11,6 +11,7 @@ export type CardReconciliationTransaction = {
 
 export type CardReconciliationInput = {
   currentBalance: number
+  initialBalance?: number
   transactions: CardReconciliationTransaction[]
   installments?: Pick<CreditCardInstallment, 'purchase_transaction_id'>[]
   tolerance?: number
@@ -20,10 +21,12 @@ export type CardReconciliationStatus = 'OK' | 'REVISAR'
 
 export type CardReconciliationResult = {
   registeredBalance: number
+  initialBalance: number
   normalPurchases: number
   msiPurchases: number
   payments: number
   refunds: number
+  movementNet: number
   expectedBalance: number
   difference: number
   absoluteDifference: number
@@ -41,6 +44,7 @@ function affectsCardBalance(tx: CardReconciliationTransaction) {
 
 export function reconcileCreditCard({
   currentBalance,
+  initialBalance = 0,
   transactions,
   installments = [],
   tolerance = 0.01,
@@ -84,17 +88,21 @@ export function reconcileCreditCard({
     }
   })
 
-  const expectedBalance = roundMoney(normalPurchases + msiPurchases - payments - refunds)
+  const baseline = roundMoney(Number(initialBalance || 0))
+  const movementNet = roundMoney(normalPurchases + msiPurchases - payments - refunds)
+  const expectedBalance = roundMoney(baseline + movementNet)
   const registeredBalance = roundMoney(Number(currentBalance || 0))
   const difference = roundMoney(registeredBalance - expectedBalance)
   const absoluteDifference = Math.abs(difference)
 
   return {
     registeredBalance,
+    initialBalance: baseline,
     normalPurchases: roundMoney(normalPurchases),
     msiPurchases: roundMoney(msiPurchases),
     payments: roundMoney(payments),
     refunds: roundMoney(refunds),
+    movementNet,
     expectedBalance,
     difference,
     absoluteDifference,

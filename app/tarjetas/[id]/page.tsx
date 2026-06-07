@@ -27,6 +27,7 @@ type CreditCard = {
   payment_due_day: number
   credit_limit: number
   current_balance: number
+  initial_balance: number
   minimum_payment: number
   no_interest_payment: number
 }
@@ -119,12 +120,27 @@ export default function TarjetaDetallePage() {
       setMessage(cardError?.message || txError?.message || installmentError?.message || 'Error al cargar la tarjeta')
     }
 
+    let initialBalance = 0
+    if (cardData?.account_id) {
+      const { data: accountData, error: accountError } = await supabase
+        .from('accounts')
+        .select('initial_balance')
+        .eq('id', cardData.account_id)
+        .single()
+
+      if (accountError) {
+        setMessage(accountError.message)
+      } else {
+        initialBalance = Number(accountData?.initial_balance || 0)
+      }
+    }
+
     const syncedInstallments = await syncInstallmentPlans(
       supabase,
       ((installmentData as InstallmentPlan[]) ?? []),
     ).catch(() => ((installmentData as InstallmentPlan[]) ?? []))
 
-    setCard((cardData as CreditCard) ?? null)
+    setCard(cardData ? ({ ...(cardData as Omit<CreditCard, 'initial_balance'>), initial_balance: initialBalance }) : null)
     setTransactions((txData as Transaction[]) ?? [])
     setInstallments(syncedInstallments)
     setLoading(false)
@@ -162,6 +178,7 @@ export default function TarjetaDetallePage() {
 
     return reconcileCreditCard({
       currentBalance: Number(card.current_balance || 0),
+      initialBalance: Number(card.initial_balance || 0),
       transactions,
       installments,
     })
@@ -336,14 +353,19 @@ export default function TarjetaDetallePage() {
                   </span>
                 </div>
                 <p className="mt-2 max-w-3xl text-sm font-medium text-slate-500">
-                  Esta conciliación compara movimientos registrados contra el saldo actual de la tarjeta. Es una estimación y puede variar si existen saldos iniciales, ajustes históricos o movimientos no registrados.
+                  Esta conciliación suma el saldo histórico inicial de la cuenta espejo y los movimientos registrados contra el saldo actual de la tarjeta. Es una estimación y puede variar si existen ajustes históricos o movimientos no registrados.
                 </p>
               </div>
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-4">
+              <MiniStat label="Saldo histórico inicial" value={formatMoney(reconciliation.initialBalance)} />
+              <MiniStat label="Movimientos registrados" value={formatMoney(reconciliation.movementNet)} />
               <MiniStat label="Saldo registrado" value={formatMoney(reconciliation.registeredBalance)} />
               <MiniStat label="Saldo esperado" value={formatMoney(reconciliation.expectedBalance)} />
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               <MiniStat
                 label="Diferencia"
                 value={formatMoney(reconciliation.difference)}
