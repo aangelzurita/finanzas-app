@@ -732,9 +732,10 @@ export default function Home() {
         </div>
 
         {/* Acceso a Módulos */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           {[
             { label: 'Cuentas', href: '/cuentas', icon: Wallet },
+            { label: 'Ingresos', href: '/ingresos', icon: ArrowDownRight },
             { label: 'Tarjetas', href: '/tarjetas', icon: CardIcon },
             { label: 'Deudas', href: '/deudas', icon: ArrowUpRight },
             { label: 'Recurrentes', href: '/recurrentes', icon: Calendar },
