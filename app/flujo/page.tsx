@@ -160,7 +160,7 @@ export default function FlujoPage() {
     ] = await Promise.all([
       supabase.from('accounts').select('id, account_type, current_balance').eq('is_active', true),
       supabase.from('income_schedules').select('*').eq('is_active', true).order('next_income_date', { ascending: true }),
-      supabase.from('reminders').select('id, title, due_date, amount, status').eq('status', 'pending').order('due_date', { ascending: true }),
+      supabase.from('reminders').select('id, title, due_date, amount, status, reminder_type').eq('status', 'pending').order('due_date', { ascending: true }),
       supabase.from('recurring_charges').select('*').eq('is_active', true),
       supabase.from('credit_card_installments').select('*').neq('status', 'canceled'),
       supabase

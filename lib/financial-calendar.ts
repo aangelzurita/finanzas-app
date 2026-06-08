@@ -61,6 +61,7 @@ export type FinancialCalendarReminder = {
   due_date: string
   amount: number | null
   status?: string | null
+  reminder_type?: string | null
 }
 
 export type FinancialCalendarCreditCard = {
@@ -273,6 +274,8 @@ export function buildReminderEvents(
     .forEach((reminder) => {
       const amount = Number(reminder.amount || 0)
       const dueDate = parseDateOnly(reminder.due_date)
+      const isNonFinancial = reminder.reminder_type === 'non_financial'
+      const affectsCash = amount > 0 && !isNonFinancial
 
       if (!isValidDate(dueDate)) return
 
@@ -281,11 +284,11 @@ export function buildReminderEvents(
         date: formatDateOnly(dueDate),
         title: reminder.title,
         amount,
-        direction: amount > 0 ? 'outflow' as const : 'neutral' as const,
+        direction: affectsCash ? 'outflow' as const : 'neutral' as const,
         sourceType: 'reminder' as const,
         confidence: 'manual' as const,
-        eventStatus: amount > 0 ? 'manual' as const : 'informational' as const,
-        affectsCash: amount > 0,
+        eventStatus: affectsCash ? 'manual' as const : 'informational' as const,
+        affectsCash,
         affectsBudget: false,
       })
     })
