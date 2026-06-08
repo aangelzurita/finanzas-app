@@ -9,6 +9,10 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { AlertRow, AlertPill } from '@/components/ui/Alerts'
 import { DeleteCardButton } from '@/components/cards/DeleteCardButton'
+import {
+  adviseCreditCards,
+  type CardAdvisorResult,
+} from '@/lib/credit-card-advisor'
 
 type CreditCard = {
   id: string
@@ -125,7 +129,7 @@ export default function TarjetasPage() {
     }
   }
 
-  const today = new Date()
+  const today = useMemo(() => new Date(), [])
 
   const getRecommendation = (cutoffDay: number) => {
     const todayDay = today.getDate()
@@ -264,10 +268,9 @@ export default function TarjetasPage() {
     })
   }, [cards])
 
-  const bestCard = useMemo(() => {
-    if (evaluatedCards.length === 0) return null
-    return [...evaluatedCards].sort((a, b) => b.score - a.score)[0]
-  }, [evaluatedCards])
+  const advisorResults = useMemo(() => adviseCreditCards(cards, today), [cards, today])
+
+  const bestAdvisorCard = advisorResults[0] || null
 
   const allAlerts = useMemo(() => {
     return evaluatedCards.flatMap((item) =>
@@ -289,6 +292,30 @@ export default function TarjetasPage() {
       totalAvailable,
     }
   }, [cards])
+
+  const formatAdvisorDate = (value: Date) =>
+    value.toLocaleDateString('es-MX', {
+      day: '2-digit',
+      month: 'long',
+    })
+
+  const advisorRecommendationLabel: Record<CardAdvisorResult['recommendation'], string> = {
+    best: 'Mejor opción',
+    usable: 'Buena opción',
+    avoid: 'Evitar',
+  }
+
+  const advisorRiskLabel: Record<CardAdvisorResult['riskLevel'], string> = {
+    low: 'Bajo',
+    medium: 'Medio',
+    high: 'Alto',
+  }
+
+  const advisorTone: Record<CardAdvisorResult['recommendation'], string> = {
+    best: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    usable: 'border-sky-100 bg-sky-50 text-sky-700',
+    avoid: 'border-rose-100 bg-rose-50 text-rose-700',
+  }
 
   if (loading) {
     return (
@@ -362,24 +389,24 @@ export default function TarjetasPage() {
           <KpiCard title="Disponible" value={formatMoney(summary.totalAvailable)} valueClassName="text-emerald-600 font-bold" />
         </div>
 
-        {bestCard && (
+        {bestAdvisorCard && (
           <div className="mb-8 rounded-[2.5rem] border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/5 transition-all hover:shadow-emerald-900/10">
             <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-2">
               <span className="w-2 h-4 bg-emerald-500 rounded-full" />
-              Recomendación inteligente
+              Asesor de tarjetas
             </p>
 
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-4xl font-extrabold text-slate-900 leading-tight">
-                  Usa <span className="text-emerald-500">{bestCard.card.name}</span>
+                  Usa <span className="text-emerald-500">{bestAdvisorCard.cardName}</span>
                 </h2>
-                <p className="text-slate-500 text-lg mt-1 font-medium italic">
-                  Emitida por: {bestCard.card.bank || 'Institución financiera'}
+                <p className="text-slate-500 text-lg mt-1 font-medium">
+                  Mejor opción para una compra hecha hoy.
                 </p>
 
                 <div className="mt-5 flex flex-wrap gap-2">
-                  {bestCard.reasons.map((reason, index) => (
+                  {bestAdvisorCard.reasons.map((reason, index) => (
                     <span
                       key={index}
                       className="rounded-full bg-slate-50 border border-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600"
@@ -391,11 +418,67 @@ export default function TarjetasPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 min-w-[340px]">
-                <MiniStat label="Días al corte" value={`${bestCard.daysToCutoff} días`} />
-                <MiniStat label="% de uso" value={`${bestCard.usagePercent.toFixed(1)}%`} />
-                <MiniStat label="Disponible" value={formatMoney(bestCard.available)} valueClassName="text-emerald-600 font-black" />
-                <MiniStat label="Score" value={`${bestCard.score}`} valueClassName="text-slate-900 font-black" />
+                <MiniStat label="Próximo corte" value={formatAdvisorDate(bestAdvisorCard.estimatedCutoffDate)} subvalue={`${bestAdvisorCard.daysUntilCutoff} días`} />
+                <MiniStat label="Próximo pago" value={formatAdvisorDate(bestAdvisorCard.estimatedPaymentDueDate)} />
+                <MiniStat label="Días para pagar" value={`${bestAdvisorCard.financingDaysIfUsedToday}`} valueClassName="text-emerald-600 font-black" />
+                <MiniStat label="Disponible" value={formatMoney(bestAdvisorCard.availableCredit)} valueClassName="text-emerald-600 font-black" />
+                <MiniStat label="Riesgo" value={advisorRiskLabel[bestAdvisorCard.riskLevel]} />
+                <MiniStat label="Score" value={`${bestAdvisorCard.score}`} valueClassName="text-slate-900 font-black" />
               </div>
+            </div>
+          </div>
+        )}
+
+        {advisorResults.length > 0 && (
+          <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-lg">
+            <div className="mb-6 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Ranking para usar hoy</h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  Excluye tarjetas departamentales como Liverpool y ordena por financiamiento, utilización, disponible y presión de pago.
+                </p>
+              </div>
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">
+                Lectura estimada
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {advisorResults.map((item, index) => (
+                <div key={item.cardId} className="rounded-3xl border border-slate-100 bg-slate-50/60 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white">
+                          {index + 1}
+                        </span>
+                        <h3 className="text-xl font-black text-slate-900">{item.cardName}</h3>
+                        <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-widest ${advisorTone[item.recommendation]}`}>
+                          {advisorRecommendationLabel[item.recommendation]}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.reasons.slice(0, 4).map((reason) => (
+                          <span key={reason} className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[560px] lg:grid-cols-4">
+                      <MiniStat label="Días para pagar" value={`${item.financingDaysIfUsedToday}`} valueClassName="text-emerald-600 font-black" />
+                      <MiniStat label="Corte" value={formatAdvisorDate(item.estimatedCutoffDate)} />
+                      <MiniStat label="Pago" value={formatAdvisorDate(item.estimatedPaymentDueDate)} />
+                      <MiniStat label="Disponible" value={formatMoney(item.availableCredit)} valueClassName="text-emerald-600 font-black" />
+                      <MiniStat label="Saldo usado" value={formatMoney(item.currentBalance)} valueClassName="text-rose-600 font-bold" />
+                      <MiniStat label="Utilización" value={`${(item.utilizationRate * 100).toFixed(1)}%`} />
+                      <MiniStat label="Riesgo" value={advisorRiskLabel[item.riskLevel]} />
+                      <MiniStat label="Score" value={`${item.score}`} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
