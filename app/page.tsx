@@ -41,6 +41,7 @@ import {
   type IncomeSchedule,
 } from '@/lib/financial-calendar'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
+import { adviseCreditCards } from '@/lib/credit-card-advisor'
 import {
   BarChart,
   Bar,
@@ -141,7 +142,7 @@ export default function Home() {
           .eq('period_year', currentYear),
         supabase
           .from('credit_cards')
-          .select('id, name, current_balance, payment_due_day, statement_cutoff_day, minimum_payment, no_interest_payment')
+          .select('id, name, credit_limit, current_balance, payment_due_day, statement_cutoff_day, minimum_payment, no_interest_payment')
           .eq('is_active', true)
           .order('name'),
         supabase
@@ -439,6 +440,109 @@ export default function Home() {
     [filteredMonthTransactions, categories, installmentBudgetAmounts, msiPurchaseIds]
   )
 
+  const cardAdvisorResults = useMemo(
+    () => adviseCreditCards(creditCards),
+    [creditCards]
+  )
+
+  const bestAdvisorCard = cardAdvisorResults[0]
+
+  const nextIncomeHealth = useMemo(() => {
+    const nextIncomeDate = cashflowProjection.summary.nextIncomeDate
+    if (!nextIncomeDate) {
+      return {
+        tone: 'slate' as const,
+        status: 'Sin datos suficientes',
+        margin: cashflowProjection.summary.lowestBalance,
+        text: 'Registra ingresos programados para estimar si llegas al siguiente ingreso.',
+      }
+    }
+
+    const pointsBeforeIncome = cashflowProjection.points.filter((point) => point.date < nextIncomeDate)
+    const lowestPoint = pointsBeforeIncome.length > 0
+      ? pointsBeforeIncome.reduce((lowest, point) => point.endingBalance < lowest.endingBalance ? point : lowest)
+      : cashflowProjection.points.find((point) => point.date === cashflowProjection.summary.lowestBalanceDate)
+
+    const margin = lowestPoint?.endingBalance ?? cashflowProjection.summary.lowestBalance
+    const cautionThreshold = Math.max(0, cashflowProjection.summary.currentBalance * 0.1)
+    const tone = margin < 0 ? 'rose' as const : margin <= cautionThreshold ? 'amber' as const : 'emerald' as const
+    const status = tone === 'rose' ? 'Riesgo' : tone === 'amber' ? 'Precaución' : 'Bien'
+
+    return {
+      tone,
+      status,
+      margin,
+      text: `Llegas a tu próximo ingreso con un margen estimado de ${formatMoney(margin)}.`,
+    }
+  }, [cashflowProjection])
+
+  const pressureHealth = useMemo(() => {
+    const commitments = projectedCashOutflows
+    const base = Math.max(metrics.disponible + metrics.totalIncome, 1)
+    const pressureRate = commitments / base
+    const tone = pressureRate >= 0.75 ? 'rose' as const : pressureRate >= 0.4 ? 'amber' as const : 'emerald' as const
+    const status = tone === 'rose' ? 'Alto' : tone === 'amber' ? 'Medio' : 'Bajo'
+
+    return {
+      tone,
+      status,
+      value: commitments,
+      text: `Tus compromisos registrados representan ${formatMoney(commitments)} este mes.`,
+    }
+  }, [projectedCashOutflows, metrics.disponible, metrics.totalIncome])
+
+  const leakHealth = useMemo(() => {
+    const exceeded = budgetRows
+      .filter((row) => row.remaining < 0)
+      .sort((a, b) => a.remaining - b.remaining)[0]
+
+    if (exceeded) {
+      return {
+        tone: 'rose' as const,
+        status: 'Riesgo',
+        title: exceeded.categoryName,
+        text: `${exceeded.categoryName} ya excedió su presupuesto por ${formatMoney(Math.abs(exceeded.remaining))}.`,
+      }
+    }
+
+    const pressured = budgetRows
+      .filter((row) => row.progress >= 80)
+      .sort((a, b) => b.progress - a.progress)[0]
+
+    if (pressured) {
+      return {
+        tone: 'amber' as const,
+        status: 'Precaución',
+        title: pressured.categoryName,
+        text: `${pressured.categoryName} ya va al ${pressured.progress.toFixed(0)}% de su presupuesto.`,
+      }
+    }
+
+    const topCategory = categoryChartData[0]
+    if (topCategory) {
+      return {
+        tone: 'emerald' as const,
+        status: 'Atención',
+        title: topCategory.name,
+        text: `${topCategory.name} concentra ${formatMoney(topCategory.value)} este mes.`,
+      }
+    }
+
+    return {
+      tone: 'slate' as const,
+      status: 'Sin datos suficientes',
+      title: 'Sin categoría',
+      text: 'Registra movimientos o presupuestos para detectar fugas.',
+    }
+  }, [budgetRows, categoryChartData])
+
+  const healthToneClasses = {
+    emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    amber: 'border-amber-100 bg-amber-50 text-amber-700',
+    rose: 'border-rose-100 bg-rose-50 text-rose-700',
+    slate: 'border-slate-100 bg-slate-50 text-slate-600',
+  }
+
   const logout = async () => {
     await supabase.auth.signOut()
     window.location.reload()
@@ -492,6 +596,71 @@ export default function Home() {
         )}
 
         <QuickNav />
+
+        <section className="mb-8">
+          <Panel title="Salud financiera" subtitle="Lectura estimada con base en registros actuales">
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Próxima quincena</p>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
+                    {nextIncomeHealth.status}
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-slate-950">
+                  {cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-400">
+                  {cashflowProjection.summary.nextIncomeDate ? `Próximo ingreso: ${formatDate(cashflowProjection.summary.nextIncomeDate)}` : 'Sin ingreso esperado'}
+                </p>
+                <p className="mt-4 text-sm font-bold text-slate-600">{nextIncomeHealth.text}</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Presión mensual</p>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[pressureHealth.tone]}`}>
+                    {pressureHealth.status}
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-slate-950">{formatMoney(pressureHealth.value)}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">Tarjetas, MSI, deudas, recurrentes y alertas con monto.</p>
+                <p className="mt-4 text-sm font-bold text-slate-600">{pressureHealth.text}</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Mejor tarjeta hoy</p>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${bestAdvisorCard ? healthToneClasses[bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald'] : healthToneClasses.slate}`}>
+                    {bestAdvisorCard ? (bestAdvisorCard.recommendation === 'avoid' ? 'Evitar' : 'Bien') : 'Sin datos'}
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-slate-950">{bestAdvisorCard?.cardName || '---'}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">
+                  {bestAdvisorCard ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar.` : 'Registra tarjetas activas para recomendar.'}
+                </p>
+                <p className="mt-4 text-sm font-bold text-slate-600">
+                  {bestAdvisorCard?.reasons[0] || 'Sin datos suficientes para elegir tarjeta.'}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Categoría de atención</p>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[leakHealth.tone]}`}>
+                    {leakHealth.status}
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-slate-950">{leakHealth.title}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">Presupuesto y gasto del mes seleccionado.</p>
+                <p className="mt-4 text-sm font-bold text-slate-600">{leakHealth.text}</p>
+              </div>
+            </div>
+            <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+              Esta lectura es estimada y depende de los ingresos, compromisos, tarjetas, presupuestos y movimientos registrados.
+            </p>
+          </Panel>
+        </section>
 
         <Panel title="Lectura del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta antes de revisar disponibilidad, presión, riesgo y fugas">
           <div className="grid gap-4 md:grid-cols-3">

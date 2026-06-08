@@ -56,6 +56,7 @@ export type Budget = {
 export type CreditCard = {
   id: string
   name: string
+  credit_limit: number
   current_balance: number
   payment_due_day: number
   statement_cutoff_day: number
