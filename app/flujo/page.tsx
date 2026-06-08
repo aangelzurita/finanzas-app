@@ -5,7 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
 import {
+  buildSmartPurchaseAdvisor,
   simulateCashflowDecision,
+  type SmartPurchaseAdvisorResult,
   type SimulationResult,
   type SimulationType,
 } from '@/lib/cashflow-simulator'
@@ -123,6 +125,10 @@ function endDateForHorizon(horizon: Horizon) {
   return getEndOfCurrentMonth(today)
 }
 
+function formatPercent(value: number) {
+  return `${(Number(value || 0) * 100).toFixed(0)}%`
+}
+
 export default function FlujoPage() {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
@@ -143,6 +149,7 @@ export default function FlujoPage() {
     title: '',
   })
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
+  const [purchaseAdvisorResult, setPurchaseAdvisorResult] = useState<SmartPurchaseAdvisorResult | null>(null)
 
   const loadData = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -167,7 +174,7 @@ export default function FlujoPage() {
       supabase.from('credit_card_installments').select('*').neq('status', 'canceled'),
       supabase
         .from('credit_cards')
-        .select('id, name, current_balance, payment_due_day, minimum_payment, no_interest_payment')
+        .select('id, name, credit_limit, current_balance, statement_cutoff_day, payment_due_day, minimum_payment, no_interest_payment')
         .eq('is_active', true),
       supabase.from('debts').select('*').neq('status', 'canceled'),
     ])
@@ -255,10 +262,14 @@ export default function FlujoPage() {
     const { name, value } = event.target
     setSimulationForm((prev) => ({ ...prev, [name]: value }))
     setSimulationResult(null)
+    setPurchaseAdvisorResult(null)
   }
 
   const handleSimulationSubmit = (event: React.FormEvent) => {
     event.preventDefault()
+    const isCardPurchase =
+      simulationForm.type === 'credit_card_purchase' ||
+      simulationForm.type === 'installment_purchase'
 
     const result = simulateCashflowDecision({
       currentBalance,
@@ -275,6 +286,32 @@ export default function FlujoPage() {
     })
 
     setSimulationResult(result)
+
+    if (isCardPurchase) {
+      const advisor = buildSmartPurchaseAdvisor({
+        amount: Number(simulationForm.amount),
+        purchaseDate: simulationForm.date,
+        isInstallment: simulationForm.type === 'installment_purchase',
+        months: Number(simulationForm.months),
+        cards: cards.map((card) => ({
+          id: card.id,
+          name: card.name,
+          credit_limit: Number(card.credit_limit || 0),
+          current_balance: Number(card.current_balance || 0),
+          statement_cutoff_day: Number(card.statement_cutoff_day || 1),
+          payment_due_day: Number(card.payment_due_day || 1),
+          minimum_payment: Number(card.minimum_payment || 0),
+          no_interest_payment: Number(card.no_interest_payment || 0),
+        })),
+        currentBalance,
+        baseEvents: events,
+        projectionStartDate: new Date(),
+        projectionEndDate: endDate,
+      })
+      setPurchaseAdvisorResult(advisor)
+    } else {
+      setPurchaseAdvisorResult(null)
+    }
   }
 
   const pointsWithEvents = projection.points.filter((point) => point.events.length > 0)
@@ -294,6 +331,9 @@ export default function FlujoPage() {
       .filter((event) => event.direction === 'outflow' && event.affectsCash)
       .map((event) => Number(event.amount || 0))
   )
+  const isCardSimulation =
+    simulationForm.type === 'credit_card_purchase' ||
+    simulationForm.type === 'installment_purchase'
 
   if (loading) {
     return (
@@ -367,8 +407,14 @@ export default function FlujoPage() {
               </p>
             </div>
             {simulationResult && (
-              <span className={`finance-pulse-in rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${recommendationClasses[simulationResult.recommendation]}`}>
-                {recommendationLabels[simulationResult.recommendation]}
+              <span className={`finance-pulse-in rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${
+                isCardSimulation && purchaseAdvisorResult?.bestOption
+                  ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                  : recommendationClasses[simulationResult.recommendation]
+              }`}>
+                {isCardSimulation && purchaseAdvisorResult?.bestOption
+                  ? `Mejor: ${purchaseAdvisorResult.bestOption.cardName}`
+                  : recommendationLabels[simulationResult.recommendation]}
               </span>
             )}
           </div>
@@ -446,7 +492,191 @@ export default function FlujoPage() {
             </button>
           </form>
 
-          {simulationResult && (
+          {simulationResult && isCardSimulation && purchaseAdvisorResult && (
+            <div className="mt-6 space-y-5">
+              {purchaseAdvisorResult.warnings.length > 0 && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                  {purchaseAdvisorResult.warnings.join(' ')}
+                </div>
+              )}
+
+              <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-lg">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Asesor de Compra Inteligente</p>
+                    <h3 className="mt-2 text-3xl font-black tracking-tight">
+                      {purchaseAdvisorResult.bestOption?.cardName || 'Sin tarjeta recomendada'}
+                    </h3>
+                    <p className="mt-2 max-w-3xl text-sm font-semibold text-slate-300">
+                      Esta compra no reduce tu efectivo hoy, pero aumenta el saldo de tu tarjeta y tus compromisos futuros.
+                    </p>
+                  </div>
+                  {purchaseAdvisorResult.bestOption && (
+                    <div className="rounded-2xl bg-white px-5 py-4 text-slate-950">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">Score</p>
+                      <p className="mt-1 text-3xl font-black">{purchaseAdvisorResult.bestOption.score}/100</p>
+                    </div>
+                  )}
+                </div>
+
+                {purchaseAdvisorResult.bestOption && (
+                  <div className="mt-6 grid gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl bg-white/10 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo actual</p>
+                      <p className="mt-2 text-xl font-black">{formatMoney(purchaseAdvisorResult.bestOption.currentBalance)}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo después</p>
+                      <p className="mt-2 text-xl font-black">{formatMoney(purchaseAdvisorResult.bestOption.balanceAfterPurchase)}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">Utilización</p>
+                      <p className="mt-2 text-xl font-black">
+                        {formatPercent(purchaseAdvisorResult.bestOption.currentUtilizationRate)} → {formatPercent(purchaseAdvisorResult.bestOption.utilizationAfterPurchaseRate)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white/10 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">Disponible restante</p>
+                      <p className="mt-2 text-xl font-black">{formatMoney(purchaseAdvisorResult.bestOption.availableAfterPurchase)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {purchaseAdvisorResult.bestOption && (
+                <div className="grid gap-4 lg:grid-cols-12">
+                  <div className="rounded-2xl border border-slate-100 bg-white p-5 lg:col-span-5">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Motivos</p>
+                    <div className="mt-3 space-y-2">
+                      {purchaseAdvisorResult.bestOption.reasons.slice(0, 4).map((reason) => (
+                        <p key={reason} className="rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-100 bg-white p-5 lg:col-span-7">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Impacto proyectado</p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-xs font-bold text-slate-400">Pago adicional estimado</p>
+                        <p className="mt-2 text-xl font-black text-slate-900">{formatMoney(purchaseAdvisorResult.bestOption.additionalPaymentEstimate)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-xs font-bold text-slate-400">Pago para no generar intereses</p>
+                        <p className="mt-2 text-xl font-black text-slate-900">{formatMoney(purchaseAdvisorResult.bestOption.estimatedNoInterestPaymentAfterPurchase)}</p>
+                        <p className="mt-1 text-xs font-bold text-slate-500">
+                          Actual: {formatMoney(purchaseAdvisorResult.bestOption.currentNoInterestPayment)}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-xs font-bold text-slate-400">Cierre proyectado</p>
+                        <p className={`mt-2 text-xl font-black ${purchaseAdvisorResult.bestOption.projectedEndBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                          {formatMoney(purchaseAdvisorResult.bestOption.projectedEndBalance)}
+                        </p>
+                        <p className={`mt-1 text-xs font-bold ${purchaseAdvisorResult.bestOption.impactEndBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {purchaseAdvisorResult.bestOption.impactEndBalance >= 0 ? '+' : ''}{formatMoney(purchaseAdvisorResult.bestOption.impactEndBalance)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-100 p-4">
+                        <p className="text-xs font-bold text-slate-400">Corte</p>
+                        <p className="mt-2 font-black text-slate-900">{formatDate(purchaseAdvisorResult.bestOption.cutoffDate)}</p>
+                        <p className="text-xs font-bold text-slate-500">{purchaseAdvisorResult.bestOption.daysUntilCutoff} días al corte</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 p-4">
+                        <p className="text-xs font-bold text-slate-400">Pago</p>
+                        <p className="mt-2 font-black text-slate-900">{formatDate(purchaseAdvisorResult.bestOption.paymentDueDate)}</p>
+                        <p className="text-xs font-bold text-slate-500">{purchaseAdvisorResult.bestOption.daysUntilPayment} días hasta pagar</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 p-4">
+                        <p className="text-xs font-bold text-slate-400">Compromisos futuros</p>
+                        <p className="mt-2 font-black text-slate-900">{formatMoney(purchaseAdvisorResult.bestOption.futureCommitmentImpact)}</p>
+                        <p className="text-xs font-bold text-slate-500">Estimación temporal</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Comparativo</p>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-xs font-black uppercase tracking-widest text-slate-400">
+                        <th className="py-3 pr-4">Tarjeta</th>
+                        <th className="py-3 pr-4">Saldo actual</th>
+                        <th className="py-3 pr-4">Saldo después</th>
+                        <th className="py-3 pr-4">Tiempo hasta pago</th>
+                        <th className="py-3 pr-4">Utilización después</th>
+                        <th className="py-3 pr-4">Disponible restante</th>
+                        <th className="py-3 pr-4">Pago no intereses</th>
+                        <th className="py-3 pr-4">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {purchaseAdvisorResult.cardAnalyses.map((card) => (
+                        <tr key={card.cardId}>
+                          <td className="py-4 pr-4 font-black text-slate-900">{card.cardName}</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{formatMoney(card.currentBalance)}</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{formatMoney(card.balanceAfterPurchase)}</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{card.financingDays} días</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{formatPercent(card.utilizationAfterPurchaseRate)}</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{formatMoney(card.availableAfterPurchase)}</td>
+                          <td className="py-4 pr-4 font-bold text-slate-600">{formatMoney(card.estimatedNoInterestPaymentAfterPurchase)}</td>
+                          <td className="py-4 pr-4">
+                            <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                              card.recommendation === 'avoid'
+                                ? 'bg-rose-100 text-rose-700'
+                                : card.recommendation === 'best'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {card.score}/100
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
+                <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Recomendación humana</p>
+                <p className="mt-2 text-sm font-bold text-emerald-800">{purchaseAdvisorResult.recommendationText}</p>
+              </div>
+
+              {simulationForm.type === 'installment_purchase' && purchaseAdvisorResult.msiOptions.length > 0 && (
+                <div className="rounded-2xl border border-sky-100 bg-sky-50 p-5">
+                  <p className="text-xs font-black uppercase tracking-widest text-sky-700">¿Y si lo hago a MSI?</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    {purchaseAdvisorResult.msiOptions.map((option) => (
+                      <div key={option.months} className="rounded-2xl bg-white p-4">
+                        <p className="font-black text-slate-900">{option.months} meses</p>
+                        <p className="mt-2 text-xl font-black text-sky-700">{formatMoney(option.monthlyAmount)}</p>
+                        <p className="mt-1 text-xs font-bold text-slate-500">al mes estimado</p>
+                        <p className={`mt-3 text-xs font-black ${
+                          option.recommendation === 'avoid'
+                            ? 'text-rose-600'
+                            : option.recommendation === 'caution'
+                              ? 'text-amber-600'
+                              : 'text-emerald-600'
+                        }`}>
+                          Cierre: {formatMoney(option.projectedEndBalance)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {simulationResult && !isCardSimulation && (
             <div className="mt-6 grid gap-4 lg:grid-cols-12">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:col-span-3">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Cierre actual</p>

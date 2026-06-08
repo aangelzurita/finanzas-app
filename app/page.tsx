@@ -60,12 +60,17 @@ import {
   CreditCard as CardIcon,
   Calendar,
   Wallet,
-  ArrowRight
+  ArrowRight,
+  AlertTriangle,
+  BadgeDollarSign,
+  ShieldCheck,
+  TrendingDown
 } from 'lucide-react'
 import Link from 'next/link'
 
 type InstallmentPlan = CreditCardInstallment
 type PaymentFilter = 'all' | 'cash' | 'credit_card'
+type HealthTone = 'emerald' | 'amber' | 'rose' | 'slate'
 
 function currentMonthKey() {
   const now = new Date()
@@ -372,6 +377,57 @@ export default function Home() {
     [financialEvents]
   )
 
+  const commitmentsBeforeNextIncome = useMemo(() => {
+    const nextIncomeDate = cashflowProjection.summary.nextIncomeDate
+    if (!nextIncomeDate) return 0
+
+    return financialEvents
+      .filter(
+        (event) =>
+          event.direction === 'outflow' &&
+          event.affectsCash &&
+          event.date < nextIncomeDate
+      )
+      .reduce((acc, event) => acc + Number(event.amount || 0), 0)
+  }, [cashflowProjection.summary.nextIncomeDate, financialEvents])
+
+  const monthlyCommitmentBreakdown = useMemo(() => {
+    const sumBySource = (sourceTypes: FinancialCalendarEvent['sourceType'][]) =>
+      financialEvents
+        .filter(
+          (event) =>
+            event.direction === 'outflow' &&
+            event.affectsCash &&
+            sourceTypes.includes(event.sourceType)
+        )
+        .reduce((acc, event) => acc + Number(event.amount || 0), 0)
+
+    const items = [
+      {
+        label: 'Tarjetas',
+        amount: sumBySource(['credit_card_payment']),
+        className: 'bg-indigo-500',
+      },
+      {
+        label: 'MSI',
+        amount: sumBySource(['installment']),
+        className: 'bg-sky-500',
+      },
+      {
+        label: 'Deudas',
+        amount: sumBySource(['debt_payment']),
+        className: 'bg-rose-500',
+      },
+      {
+        label: 'Recurrentes/alertas',
+        amount: sumBySource(['recurring_charge', 'reminder']),
+        className: 'bg-amber-500',
+      },
+    ]
+
+    return items.filter((item) => item.amount > 0)
+  }, [financialEvents])
+
   const topCashflowEvents = useMemo(
     () =>
       financialEvents
@@ -472,7 +528,7 @@ export default function Home() {
       tone,
       status,
       margin,
-      text: `Llegas a tu próximo ingreso con un margen estimado de ${formatMoney(margin)}.`,
+      text: `Llegas con margen estimado de ${formatMoney(margin)}.`,
     }
   }, [cashflowProjection])
 
@@ -502,6 +558,7 @@ export default function Home() {
         status: 'Riesgo',
         title: exceeded.categoryName,
         text: `${exceeded.categoryName} ya excedió su presupuesto por ${formatMoney(Math.abs(exceeded.remaining))}.`,
+        progress: 100,
       }
     }
 
@@ -515,6 +572,7 @@ export default function Home() {
         status: 'Precaución',
         title: pressured.categoryName,
         text: `${pressured.categoryName} ya va al ${pressured.progress.toFixed(0)}% de su presupuesto.`,
+        progress: Math.min(100, pressured.progress),
       }
     }
 
@@ -525,6 +583,7 @@ export default function Home() {
         status: 'Atención',
         title: topCategory.name,
         text: `${topCategory.name} concentra ${formatMoney(topCategory.value)} este mes.`,
+        progress: 62,
       }
     }
 
@@ -533,14 +592,36 @@ export default function Home() {
       status: 'Sin datos suficientes',
       title: 'Sin categoría',
       text: 'Registra movimientos o presupuestos para detectar fugas.',
+      progress: 0,
     }
   }, [budgetRows, categoryChartData])
 
-  const healthToneClasses = {
+  const nextIncomeMargin = Math.max(0, nextIncomeHealth.margin)
+  const nextIncomeBarTotal = nextIncomeMargin + commitmentsBeforeNextIncome
+  const nextIncomeMarginWidth = nextIncomeBarTotal > 0
+    ? Math.min(100, Math.max(nextIncomeMargin > 0 ? 8 : 0, (nextIncomeMargin / nextIncomeBarTotal) * 100))
+    : 0
+  const nextIncomeCommitmentWidth = nextIncomeBarTotal > 0 ? 100 - nextIncomeMarginWidth : 0
+
+  const healthToneClasses: Record<HealthTone, string> = {
     emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700',
     amber: 'border-amber-100 bg-amber-50 text-amber-700',
     rose: 'border-rose-100 bg-rose-50 text-rose-700',
     slate: 'border-slate-100 bg-slate-50 text-slate-600',
+  }
+
+  const healthCardClasses: Record<HealthTone, string> = {
+    emerald: 'border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50/80',
+    amber: 'border-amber-100 bg-gradient-to-br from-white via-white to-amber-50/80',
+    rose: 'border-rose-100 bg-gradient-to-br from-white via-white to-rose-50/80',
+    slate: 'border-slate-100 bg-gradient-to-br from-white via-white to-slate-50',
+  }
+
+  const healthIconClasses: Record<HealthTone, string> = {
+    emerald: 'bg-emerald-100 text-emerald-700',
+    amber: 'bg-amber-100 text-amber-700',
+    rose: 'bg-rose-100 text-rose-700',
+    slate: 'bg-slate-100 text-slate-600',
   }
 
   const logout = async () => {
@@ -598,66 +679,146 @@ export default function Home() {
         <QuickNav />
 
         <section className="mb-8">
-          <Panel title="Salud financiera" subtitle="Lectura estimada con base en registros actuales">
+          <Panel title="Salud financiera" subtitle="Resumen ejecutivo financiero con base en tus registros actuales">
             <div className="grid gap-4 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[nextIncomeHealth.tone]}`}>
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Próxima quincena</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[nextIncomeHealth.tone]}`}>
+                      <ShieldCheck size={19} />
+                    </span>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Próxima quincena</p>
+                  </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
                     {nextIncomeHealth.status}
                   </span>
                 </div>
-                <p className="text-2xl font-black text-slate-950">
+                <p className="text-2xl font-black tracking-tight text-slate-950">
                   {cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-400">
                   {cashflowProjection.summary.nextIncomeDate ? `Próximo ingreso: ${formatDate(cashflowProjection.summary.nextIncomeDate)}` : 'Sin ingreso esperado'}
                 </p>
-                <p className="mt-4 text-sm font-bold text-slate-600">{nextIncomeHealth.text}</p>
+                <p className="mt-4 text-sm font-black text-slate-700">{nextIncomeHealth.text}</p>
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
+                    <span>Margen</span>
+                    <span>Compromisos</span>
+                  </div>
+                  <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="bg-emerald-500 transition-all"
+                      style={{ width: `${nextIncomeMarginWidth}%` }}
+                    />
+                    <div
+                      className="bg-slate-300 transition-all"
+                      style={{ width: `${nextIncomeCommitmentWidth}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs font-bold text-slate-500">
+                    <span>{formatMoney(nextIncomeHealth.margin)}</span>
+                    <span>{formatMoney(commitmentsBeforeNextIncome)}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[pressureHealth.tone]}`}>
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Presión mensual</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[pressureHealth.tone]}`}>
+                      <BadgeDollarSign size={19} />
+                    </span>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pagos y compromisos del mes</p>
+                  </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[pressureHealth.tone]}`}>
                     {pressureHealth.status}
                   </span>
                 </div>
-                <p className="text-2xl font-black text-slate-950">{formatMoney(pressureHealth.value)}</p>
+                <p className="text-2xl font-black tracking-tight text-slate-950">{formatMoney(pressureHealth.value)}</p>
                 <p className="mt-1 text-xs font-bold text-slate-400">Tarjetas, MSI, deudas, recurrentes y alertas con monto.</p>
-                <p className="mt-4 text-sm font-bold text-slate-600">{pressureHealth.text}</p>
+                {monthlyCommitmentBreakdown.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    {monthlyCommitmentBreakdown.map((item) => {
+                      const width = pressureHealth.value > 0
+                        ? Math.min(100, Math.max(6, (item.amount / pressureHealth.value) * 100))
+                        : 0
+
+                      return (
+                        <div key={item.label}>
+                          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-bold text-slate-500">
+                            <span>{item.label}</span>
+                            <span>{formatMoney(item.amount)}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div className={`h-full rounded-full ${item.className}`} style={{ width: `${width}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm font-bold text-slate-600">{pressureHealth.text}</p>
+                )}
+                <p className="mt-4 rounded-2xl bg-white/70 px-3 py-2 text-xs font-bold text-slate-500">
+                  No es gasto nuevo: es dinero ya comprometido para cubrir este mes.
+                </p>
               </div>
 
-              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[bestAdvisorCard ? bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald' : 'slate']}`}>
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Mejor tarjeta hoy</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${bestAdvisorCard ? healthIconClasses[bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald'] : healthIconClasses.slate}`}>
+                      <CardIcon size={19} />
+                    </span>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Mejor tarjeta hoy</p>
+                  </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${bestAdvisorCard ? healthToneClasses[bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald'] : healthToneClasses.slate}`}>
                     {bestAdvisorCard ? (bestAdvisorCard.recommendation === 'avoid' ? 'Evitar' : 'Bien') : 'Sin datos'}
                   </span>
                 </div>
-                <p className="text-2xl font-black text-slate-950">{bestAdvisorCard?.cardName || '---'}</p>
+                <p className="text-2xl font-black tracking-tight text-slate-950">{bestAdvisorCard?.cardName || '---'}</p>
                 <p className="mt-1 text-xs font-bold text-slate-400">
                   {bestAdvisorCard ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar.` : 'Registra tarjetas activas para recomendar.'}
                 </p>
-                <p className="mt-4 text-sm font-bold text-slate-600">
+                <div className="mt-4 rounded-2xl bg-white/70 px-3 py-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Razón principal</p>
+                  <p className="mt-1 text-sm font-bold text-slate-700">
                   {bestAdvisorCard?.reasons[0] || 'Sin datos suficientes para elegir tarjeta.'}
-                </p>
+                  </p>
+                </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[leakHealth.tone]}`}>
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Categoría de atención</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[leakHealth.tone]}`}>
+                      {leakHealth.tone === 'rose' ? <AlertTriangle size={19} /> : <TrendingDown size={19} />}
+                    </span>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Categoría de atención</p>
+                  </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[leakHealth.tone]}`}>
                     {leakHealth.status}
                   </span>
                 </div>
-                <p className="text-2xl font-black text-slate-950">{leakHealth.title}</p>
+                <p className="text-2xl font-black tracking-tight text-slate-950">{leakHealth.title}</p>
                 <p className="mt-1 text-xs font-bold text-slate-400">Presupuesto y gasto del mes seleccionado.</p>
-                <p className="mt-4 text-sm font-bold text-slate-600">{leakHealth.text}</p>
+                <div className="mt-4">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
+                    <span>Indicador</span>
+                    <span>{leakHealth.progress.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={`h-full rounded-full ${leakHealth.tone === 'rose' ? 'bg-rose-500' : leakHealth.tone === 'amber' ? 'bg-amber-500' : leakHealth.tone === 'emerald' ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                      style={{ width: `${leakHealth.progress}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="mt-4 text-sm font-bold text-slate-700">{leakHealth.text}</p>
               </div>
             </div>
             <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
-              Esta lectura es estimada y depende de los ingresos, compromisos, tarjetas, presupuestos y movimientos registrados.
+              Lectura estimada con base en tus registros actuales.
             </p>
           </Panel>
         </section>

@@ -67,7 +67,9 @@ export type FinancialCalendarReminder = {
 export type FinancialCalendarCreditCard = {
   id: string
   name: string
+  credit_limit?: number
   current_balance: number
+  statement_cutoff_day?: number
   payment_due_day: number
   minimum_payment: number
   no_interest_payment: number
