@@ -47,6 +47,7 @@ export default function NuevoRecurrentePage() {
   const [creditCardId, setCreditCardId] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [createReminder, setCreateReminder] = useState(true)
+  const [affectsCash, setAffectsCash] = useState(true)
 
   const initialize = async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -150,6 +151,7 @@ export default function NuevoRecurrentePage() {
         credit_card_id: paymentMethodType === 'credit_card' ? creditCardId : null,
         next_charge_date: nextChargePreview,
         last_processed_charge_date: null,
+        affects_cash: affectsCash,
         is_active: isActive,
         create_reminder: createReminder,
       })
@@ -366,6 +368,25 @@ export default function NuevoRecurrentePage() {
                   </Field>
                 )}
               </div>
+
+              <label className="flex cursor-pointer items-start gap-4 rounded-[2rem] border-2 border-slate-100 bg-white p-5">
+                <div className="relative mt-1">
+                  <input
+                    type="checkbox"
+                    className="peer hidden"
+                    checked={affectsCash}
+                    onChange={(e) => setAffectsCash(e.target.checked)}
+                  />
+                  <div className="h-6 w-11 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500"></div>
+                  <div className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
+                </div>
+                <div>
+                  <span className="block text-sm font-black uppercase text-slate-900">Afecta saldos y flujo</span>
+                  <span className="block text-xs font-bold text-slate-400">
+                    Activo: se considera salida de efectivo o compromiso. Inactivo: solo aparece como recordatorio informativo.
+                  </span>
+                </div>
+              </label>
 
               <div className="flex flex-col gap-4 p-6 rounded-[2rem] border-2 border-slate-100 bg-slate-50/50 md:flex-row">
                 <label className="flex flex-1 items-center gap-4 cursor-pointer group">

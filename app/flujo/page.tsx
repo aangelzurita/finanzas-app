@@ -72,6 +72,22 @@ const confidenceLabels: Record<FinancialCalendarEvent['confidence'], string> = {
   manual: 'Manual',
 }
 
+const eventStatusLabels: Record<NonNullable<FinancialCalendarEvent['eventStatus']>, string> = {
+  confirmed: 'Confirmado',
+  estimated: 'Estimado',
+  manual: 'Manual',
+  pending_confirmation: 'Pendiente por confirmar',
+  informational: 'Informativo',
+}
+
+const eventStatusClasses: Record<NonNullable<FinancialCalendarEvent['eventStatus']>, string> = {
+  confirmed: 'bg-emerald-100 text-emerald-700',
+  estimated: 'bg-slate-100 text-slate-600',
+  manual: 'bg-violet-100 text-violet-700',
+  pending_confirmation: 'bg-amber-100 text-amber-700',
+  informational: 'bg-sky-50 text-sky-700',
+}
+
 const simulationTypeLabels: Record<SimulationType, string> = {
   cash_expense: 'Gasto en efectivo',
   credit_card_purchase: 'Compra con tarjeta',
@@ -522,7 +538,7 @@ export default function FlujoPage() {
           <div className="border-b border-slate-100 px-8 py-6">
             <h2 className="text-2xl font-black text-slate-900">Eventos y saldo proyectado</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              El saldo mostrado en cada fecha es el saldo después de aplicar los eventos de ese día. Compras con tarjeta y MSI pueden mostrarse como compromisos; el efectivo baja solo en eventos que afectan caja.
+              El saldo mostrado en cada fecha es el saldo después de aplicar los eventos de ese día. Compras con tarjeta y MSI pueden mostrarse como compromisos; el efectivo baja solo en eventos que afectan caja. Pagos sin monto confirmado aparecen como pendientes y no reducen el saldo proyectado.
             </p>
           </div>
 
@@ -551,6 +567,10 @@ export default function FlujoPage() {
                       className={`flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between ${
                         event.direction === 'inflow'
                           ? 'border-emerald-100 bg-emerald-50'
+                          : event.eventStatus === 'pending_confirmation'
+                            ? 'border-amber-200 bg-amber-50'
+                            : event.possibleDuplicate
+                              ? 'border-sky-200 bg-sky-50'
                           : event.affectsCash && Number(event.amount || 0) === largestCashOutflow
                             ? 'border-rose-200 bg-rose-50'
                             : point.date === projection.summary.lowestBalanceDate && event.affectsCash
@@ -579,16 +599,29 @@ export default function FlujoPage() {
                           <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
                             {confidenceLabels[event.confidence]}
                           </span>
+                          {event.eventStatus && (
+                            <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-widest ${eventStatusClasses[event.eventStatus]}`}>
+                              {eventStatusLabels[event.eventStatus]}
+                            </span>
+                          )}
+                          {event.possibleDuplicate && (
+                            <span className="rounded-full bg-sky-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-sky-700">
+                              Posible duplicado
+                            </span>
+                          )}
                           {!event.affectsCash && (
                             <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-sky-700">
-                              Compromiso
+                              No afecta caja
                             </span>
                           )}
                         </div>
                         <p className="mt-1 text-xs font-bold text-slate-400">{event.sourceType.replaceAll('_', ' ')}</p>
+                        {event.duplicateReason && (
+                          <p className="mt-1 text-xs font-bold text-sky-700">{event.duplicateReason}</p>
+                        )}
                       </div>
-                      <p className={`text-lg font-black ${event.direction === 'inflow' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {event.direction === 'inflow' ? '+' : '-'} {formatMoney(event.amount)}
+                      <p className={`text-lg font-black ${event.direction === 'inflow' ? 'text-emerald-600' : event.direction === 'neutral' ? 'text-slate-500' : 'text-rose-600'}`}>
+                        {event.direction === 'inflow' ? '+' : event.direction === 'outflow' ? '-' : ''} {formatMoney(event.amount)}
                       </p>
                     </div>
                   ))}

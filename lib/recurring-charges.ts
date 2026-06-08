@@ -21,6 +21,7 @@ export type RecurringCharge = {
   credit_card_id: string | null
   next_charge_date: string | null
   last_processed_charge_date?: string | null
+  affects_cash?: boolean | null
   is_active: boolean
 }
 
@@ -125,8 +126,9 @@ export function getPendingRecurringAmount(
 }
 
 export function isRecurringChargeAutoPayable(
-  charge: Pick<RecurringCharge, 'payment_method_type'>
+  charge: Pick<RecurringCharge, 'payment_method_type' | 'affects_cash'>
 ) {
+  if (charge.affects_cash === false) return false
   return charge.payment_method_type === 'account' || charge.payment_method_type === 'credit_card'
 }
 
@@ -179,6 +181,10 @@ async function ensureRecurringTransaction(
 
   if (!charge.category_id) {
     throw new Error(`El recurrente "${charge.name}" necesita una categoría para generar movimientos reales.`)
+  }
+
+  if (charge.affects_cash === false) {
+    throw new Error(`El recurrente "${charge.name}" está configurado como solo recordatorio.`)
   }
 
   if (!isRecurringChargeAutoPayable(charge)) {
@@ -287,6 +293,10 @@ export async function settleRecurringCharge(
 
   if (!charge.category_id) {
     throw new Error(`El recurrente "${charge.name}" necesita una categoría para generar movimientos reales.`)
+  }
+
+  if (charge.affects_cash === false) {
+    throw new Error(`El recurrente "${charge.name}" está configurado como solo recordatorio.`)
   }
 
   const dueDates = getPendingRecurringOccurrences(charge, referenceDate)

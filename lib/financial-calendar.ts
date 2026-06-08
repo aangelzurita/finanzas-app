@@ -48,6 +48,9 @@ export type FinancialCalendarEvent = {
   creditCardId?: string
   debtId?: string
   confidence: 'confirmed' | 'estimated' | 'manual'
+  eventStatus?: 'confirmed' | 'estimated' | 'manual' | 'pending_confirmation' | 'informational'
+  possibleDuplicate?: boolean
+  duplicateReason?: string
   affectsCash: boolean
   affectsBudget: boolean
 }
@@ -236,6 +239,7 @@ export function buildIncomeScheduleEvents(
             sourceType: 'income_schedule',
             accountId: schedule.account_id || undefined,
             confidence: normalizeConfidence(schedule.confidence),
+            eventStatus: schedule.confidence === 'confirmed' ? 'confirmed' : 'estimated',
             affectsCash: true,
             affectsBudget: false,
           })
@@ -260,18 +264,22 @@ export function buildReminderEvents(
 
   return reminders
     .filter((reminder) => (reminder.status || 'pending') === 'pending')
-    .filter((reminder) => Number(reminder.amount || 0) > 0)
-    .map((reminder) => ({
-      id: `reminder-${reminder.id}`,
-      date: formatDateOnly(parseDateOnly(reminder.due_date)),
-      title: reminder.title,
-      amount: Number(reminder.amount || 0),
-      direction: 'outflow' as const,
-      sourceType: 'reminder' as const,
-      confidence: 'manual' as const,
-      affectsCash: true,
-      affectsBudget: false,
-    }))
+    .map((reminder) => {
+      const amount = Number(reminder.amount || 0)
+
+      return {
+        id: `reminder-${reminder.id}`,
+        date: formatDateOnly(parseDateOnly(reminder.due_date)),
+        title: reminder.title,
+        amount,
+        direction: amount > 0 ? 'outflow' as const : 'neutral' as const,
+        sourceType: 'reminder' as const,
+        confidence: 'manual' as const,
+        eventStatus: amount > 0 ? 'manual' as const : 'informational' as const,
+        affectsCash: amount > 0,
+        affectsBudget: false,
+      }
+    })
     .filter((event) => isWithinWindow(parseDateOnly(event.date), from, to))
 }
 
@@ -287,6 +295,8 @@ export function buildRecurringChargeEvents(
     if (!charge.is_active || !charge.next_charge_date || Number(charge.amount || 0) <= 0) return []
 
     const events: FinancialCalendarEvent[] = []
+    const cashEnabled = charge.affects_cash !== false
+    const affectsCash = cashEnabled && charge.payment_method_type !== 'credit_card'
     let cursor = parseDateOnly(charge.next_charge_date)
     let guard = 0
 
@@ -306,8 +316,9 @@ export function buildRecurringChargeEvents(
         accountId: charge.account_id || undefined,
         creditCardId: charge.credit_card_id || undefined,
         confidence: charge.payment_method_type === 'manual_choice' ? 'manual' : 'estimated',
-        affectsCash: charge.payment_method_type !== 'credit_card',
-        affectsBudget: true,
+        eventStatus: cashEnabled ? (charge.payment_method_type === 'manual_choice' ? 'manual' : 'estimated') : 'informational',
+        affectsCash,
+        affectsBudget: cashEnabled,
       })
 
       cursor = nextRecurringDate(charge.frequency, charge.charge_day, cursor)
@@ -348,6 +359,7 @@ export function buildInstallmentEvents(
         sourceType: 'installment',
         creditCardId: plan.credit_card_id,
         confidence: 'estimated',
+        eventStatus: 'informational',
         affectsCash: false,
         affectsBudget: true,
       })
@@ -367,19 +379,20 @@ export function buildCreditCardPaymentEvents(
   return cards
     .flatMap((card) => {
       const amount = Number(card.no_interest_payment || card.minimum_payment || 0)
-      if (Number(card.current_balance || 0) <= 0 || amount <= 0) return []
+      if (Number(card.current_balance || 0) <= 0) return []
 
       const dueDate = firstDateOnOrAfter(from, Number(card.payment_due_day || from.getDate()))
       return [{
         id: `credit_card_payment-${card.id}-${formatDateOnly(dueDate)}`,
         date: formatDateOnly(dueDate),
-        title: `Pago ${card.name}`,
+        title: amount > 0 ? `Pago ${card.name}` : `Pago ${card.name} pendiente por confirmar`,
         amount,
-        direction: 'outflow' as const,
+        direction: amount > 0 ? 'outflow' as const : 'neutral' as const,
         sourceType: 'credit_card_payment' as const,
         creditCardId: card.id,
         confidence: 'estimated' as const,
-        affectsCash: true,
+        eventStatus: amount > 0 ? 'estimated' as const : 'pending_confirmation' as const,
+        affectsCash: amount > 0,
         affectsBudget: false,
       }]
     })
@@ -410,6 +423,7 @@ export function buildDebtPaymentEvents(
         sourceType: 'debt_payment' as const,
         debtId: debt.id,
         confidence: 'estimated' as const,
+        eventStatus: 'estimated' as const,
         affectsCash: true,
         affectsBudget: false,
       }
@@ -436,7 +450,7 @@ export function buildFinancialCalendarEvents({
   from?: string | Date
   to?: string | Date
 }) {
-  return [
+  const events = [
     ...buildIncomeScheduleEvents(incomeSchedules, { from, to }),
     ...buildReminderEvents(reminders, { from, to }),
     ...buildRecurringChargeEvents(recurringCharges, { from, to }),
@@ -444,8 +458,37 @@ export function buildFinancialCalendarEvents({
     ...buildCreditCardPaymentEvents(creditCards, { from, to }),
     ...buildDebtPaymentEvents(debts, { from, to }),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  return markPossibleDuplicateReminders(events)
 }
 
 export function getEndOfCurrentMonth(referenceDate = new Date()) {
   return addDays(startOfNextMonth(referenceDate), -1)
+}
+
+function markPossibleDuplicateReminders(events: FinancialCalendarEvent[]) {
+  return events.map((event) => {
+    if (event.sourceType !== 'reminder' || !event.affectsCash || event.amount <= 0) {
+      return event
+    }
+
+    const duplicate = events.find((candidate) => {
+      if (candidate.id === event.id) return false
+      if (candidate.sourceType === 'reminder') return false
+      if (!candidate.affectsCash || candidate.direction !== 'outflow') return false
+      if (candidate.date !== event.date) return false
+      return Math.abs(Number(candidate.amount || 0) - Number(event.amount || 0)) <= 1
+    })
+
+    if (!duplicate) return event
+
+    return {
+      ...event,
+      affectsCash: false,
+      affectsBudget: false,
+      eventStatus: 'informational' as const,
+      possibleDuplicate: true,
+      duplicateReason: `Coincide con ${duplicate.title} el mismo dia y por un monto similar.`,
+    }
+  })
 }

@@ -103,7 +103,11 @@ export default function RecurrentesPage() {
   )
 
   const pendingAmount = useMemo(
-    () => dueCharges.reduce((acc, charge) => acc + getPendingRecurringAmount(charge), 0),
+    () =>
+      dueCharges.reduce(
+        (acc, charge) => acc + (charge.affects_cash === false ? 0 : getPendingRecurringAmount(charge)),
+        0
+      ),
     [dueCharges]
   )
 
@@ -182,7 +186,7 @@ export default function RecurrentesPage() {
               </p>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Link
                 href="/recurrentes/nuevo"
                 className="rounded-2xl bg-emerald-500 hover:bg-emerald-400 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95"
@@ -236,7 +240,7 @@ export default function RecurrentesPage() {
 
         {manualDueCharges.length > 0 && (
           <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 shadow-sm animate-in fade-in slide-in-from-top-2">
-            Tienes {manualDueCharges.length} recurrente(s) vencido(s) con pago por definir. Liquídalos desde "Pagar ahora".
+            Tienes {manualDueCharges.length} recurrente(s) vencido(s) con pago por definir. Liquídalos desde Pagar ahora.
           </div>
         )}
 
@@ -286,6 +290,11 @@ export default function RecurrentesPage() {
                     </td>
                     <td className="px-8 py-5">
                       <p className="text-sm text-slate-600 font-medium">{paymentMethodLabel(charge)}</p>
+                      {charge.affects_cash === false ? (
+                        <p className="mt-1 text-xs font-bold text-sky-600 uppercase tracking-widest">Solo recordatorio</p>
+                      ) : (
+                        <p className="mt-1 text-xs font-bold text-emerald-600 uppercase tracking-widest">Afecta caja</p>
+                      )}
                       {charge.payment_method_type === 'manual_choice' ? (
                         <p className="mt-1 text-xs font-bold text-amber-600 uppercase tracking-widest">Se elige al liquidar</p>
                       ) : null}
@@ -297,8 +306,8 @@ export default function RecurrentesPage() {
                       </span>
                     </td>
                     <td className="px-8 py-5 text-right">
-                      <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        {charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge) ? (
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        {charge.affects_cash !== false && charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge) ? (
                           <Link
                             href={`/recurrentes/${charge.id}/pagar`}
                             className="rounded-xl border-2 border-amber-100 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-500 hover:text-white transition-all active:scale-95"

@@ -90,17 +90,22 @@ export default function RecordatoriosPage() {
         setLoadingAction(false)
     }
 
-    const toggleStatus = async (reminder: Reminder) => {
-        const newStatus = reminder.status === 'pending' ? 'completed' : 'pending'
+    const setReminderStatus = async (reminder: Reminder, status: 'pending' | 'completed' | 'skipped') => {
         setLoadingAction(true)
         const { error } = await supabase
-            .from('reminders')
-            .update({ status: newStatus })
-            .eq('id', reminder.id)
+          .from('reminders')
+          .update({ status })
+          .eq('id', reminder.id)
 
         if (error) setMessage(error.message)
         else void loadReminders()
         setLoadingAction(false)
+    }
+
+    const statusLabel = (status: string) => {
+        if (status === 'completed') return 'Pagado'
+        if (status === 'skipped') return 'Omitido'
+        return 'Pendiente'
     }
 
     const handleDelete = async (id: string) => {
@@ -221,12 +226,13 @@ export default function RecordatoriosPage() {
 
                     <div className="divide-y divide-slate-50">
                         {reminders.map((rem) => (
-                            <div key={rem.id} className={`px-8 py-6 flex flex-col md:flex-row md:items-center justify-between hover:bg-slate-50/50 transition-colors group ${rem.status === 'completed' ? 'opacity-60' : ''}`}>
+                            <div key={rem.id} className={`px-8 py-6 flex flex-col md:flex-row md:items-center justify-between hover:bg-slate-50/50 transition-colors ${rem.status !== 'pending' ? 'opacity-60' : ''}`}>
                                 <div className="flex items-start gap-4 flex-1">
                                     <button
-                                        onClick={() => toggleStatus(rem)}
-                                        className={`mt-1 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${rem.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 text-transparent'
+                                        onClick={() => setReminderStatus(rem, rem.status === 'pending' ? 'completed' : 'pending')}
+                                        className={`mt-1 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${rem.status !== 'pending' ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 text-transparent'
                                             }`}
+                                        title={rem.status === 'pending' ? 'Marcar pagado' : 'Volver a pendiente'}
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" />
@@ -234,9 +240,18 @@ export default function RecordatoriosPage() {
                                     </button>
                                     <div>
                                         <div className="flex items-center gap-3">
-                                            <p className={`text-lg font-black tracking-tight ${rem.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-950'}`}>
+                                            <p className={`text-lg font-black tracking-tight ${rem.status !== 'pending' ? 'line-through text-slate-400' : 'text-slate-950'}`}>
                                                 {rem.title}
                                             </p>
+                                            <span className={`rounded-full px-3 py-0.5 text-[10px] font-black uppercase tracking-widest ${
+                                                rem.status === 'pending'
+                                                    ? 'bg-amber-50 text-amber-700'
+                                                    : rem.status === 'skipped'
+                                                        ? 'bg-slate-100 text-slate-500'
+                                                        : 'bg-emerald-50 text-emerald-700'
+                                            }`}>
+                                                {statusLabel(rem.status)}
+                                            </span>
                                             {rem.related_entity_type && (
                                                 <span className="rounded-full bg-slate-100 px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
                                                     {rem.related_entity_type === 'credit_card' ? 'TDC' : 'Recurrente'}
@@ -252,7 +267,23 @@ export default function RecordatoriosPage() {
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2 mt-4 md:mt-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0">
+                                    {rem.status === 'pending' && (
+                                        <>
+                                            <button
+                                                onClick={() => setReminderStatus(rem, 'completed')}
+                                                className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-500 hover:text-white active:scale-95"
+                                            >
+                                                PAGADO
+                                            </button>
+                                            <button
+                                                onClick={() => setReminderStatus(rem, 'skipped')}
+                                                className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition-all hover:bg-slate-700 hover:text-white active:scale-95"
+                                            >
+                                                OMITIR
+                                            </button>
+                                        </>
+                                    )}
                                     <button
                                         onClick={() => handleDelete(rem.id)}
                                         className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
