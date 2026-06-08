@@ -34,6 +34,13 @@ import {
 } from '@/lib/credit-card-installments'
 import { getPendingRecurringAmount, type RecurringCharge } from '@/lib/recurring-charges'
 import {
+  buildFinancialCalendarEvents,
+  getEndOfCurrentMonth,
+  type FinancialCalendarEvent,
+  type IncomeSchedule,
+} from '@/lib/financial-calendar'
+import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
+import {
   BarChart,
   Bar,
   XAxis,
@@ -78,12 +85,14 @@ export default function Home() {
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
   const [monthTransactions, setMonthTransactions] = useState<Transaction[]>([])
   const [reminders, setReminders] = useState<Reminder[]>([])
+  const [projectionReminders, setProjectionReminders] = useState<Reminder[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [recurring, setRecurring] = useState<RecurringCharge[]>([])
   const [installments, setInstallments] = useState<InstallmentPlan[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
   const [creditCards, setCreditCards] = useState<CreditCard[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
+  const [incomeSchedules, setIncomeSchedules] = useState<IncomeSchedule[]>([])
   const [loading, setLoading] = useState(true)
   const [chartsReady, setChartsReady] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -102,12 +111,14 @@ export default function Home() {
         { data: recentTxData, error: recentTxError },
         { data: monthTxData, error: monthTxError },
         { data: remindersData, error: remindersError },
+        { data: projectionRemindersData, error: projectionRemindersError },
         { data: categoriesData, error: categoriesError },
         { data: recurringData, error: recurringError },
         { data: installmentData, error: installmentError },
         { data: debtsData, error: debtsError },
         { data: budgetsData, error: budgetsError },
-        { data: creditCardsData, error: creditCardsError }
+        { data: creditCardsData, error: creditCardsError },
+        { data: incomeSchedulesData, error: incomeSchedulesError }
       ] = await Promise.all([
         supabase.from('accounts').select('*').eq('is_active', true).order('name'),
         supabase.from('transactions').select('*').order('transaction_date', { ascending: false }).limit(5),
@@ -117,6 +128,7 @@ export default function Home() {
           .gte('transaction_date', start.toISOString())
           .lte('transaction_date', end.toISOString()),
         supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }).limit(5),
+        supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }),
         supabase.from('categories').select('*'),
         supabase.from('recurring_charges').select('*').eq('is_active', true),
         supabase.from('credit_card_installments').select('*').neq('status', 'canceled'),
@@ -130,7 +142,12 @@ export default function Home() {
           .from('credit_cards')
           .select('id, name, current_balance, payment_due_day, statement_cutoff_day, minimum_payment, no_interest_payment')
           .eq('is_active', true)
-          .order('name')
+          .order('name'),
+        supabase
+          .from('income_schedules')
+          .select('*')
+          .eq('is_active', true)
+          .order('next_income_date', { ascending: true })
       ])
 
       const firstError = [
@@ -138,12 +155,14 @@ export default function Home() {
         recentTxError,
         monthTxError,
         remindersError,
+        projectionRemindersError,
         categoriesError,
         recurringError,
         installmentError,
         debtsError,
         budgetsError,
         creditCardsError,
+        incomeSchedulesError,
       ].find(Boolean)
 
       if (firstError) {
@@ -154,6 +173,7 @@ export default function Home() {
       setRecentTransactions((recentTxData as Transaction[]) ?? [])
       setMonthTransactions((monthTxData as Transaction[]) ?? [])
       setReminders((remindersData as Reminder[]) ?? [])
+      setProjectionReminders((projectionRemindersData as Reminder[]) ?? [])
       setCategories((categoriesData as Category[]) ?? [])
       setRecurring((recurringData as RecurringCharge[]) ?? [])
       setInstallments(
@@ -164,6 +184,7 @@ export default function Home() {
       setDebts((debtsData as Debt[]) ?? [])
       setBudgets((budgetsData as Budget[]) ?? [])
       setCreditCards((creditCardsData as CreditCard[]) ?? [])
+      setIncomeSchedules((incomeSchedulesData as IncomeSchedule[]) ?? [])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar el dashboard.'
       setLoadError(message)
@@ -307,6 +328,73 @@ export default function Home() {
     [metrics.disponible, metrics.fixedExpense, metrics.monthInstallments, pendingReminderAmount, pendingCardPaymentAmount]
   )
 
+  const projectionEndDate = useMemo(() => getEndOfCurrentMonth(new Date()), [])
+
+  const financialEvents = useMemo(
+    () =>
+      buildFinancialCalendarEvents({
+        incomeSchedules,
+        reminders: projectionReminders,
+        recurringCharges: recurring,
+        installments: filteredInstallmentsForDashboard,
+        creditCards,
+        debts,
+        from: new Date(),
+        to: projectionEndDate,
+      }),
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, projectionEndDate]
+  )
+
+  const cashflowProjection = useMemo(
+    () =>
+      buildCashflowProjection({
+        currentBalance: metrics.disponible,
+        events: financialEvents,
+        startDate: new Date(),
+        endDate: projectionEndDate,
+      }),
+    [metrics.disponible, financialEvents, projectionEndDate]
+  )
+
+  const projectedCashOutflows = useMemo(
+    () =>
+      financialEvents
+        .filter((event) => event.direction === 'outflow' && event.affectsCash)
+        .reduce((acc, event) => acc + Number(event.amount || 0), 0),
+    [financialEvents]
+  )
+
+  const topCashflowEvents = useMemo(
+    () =>
+      financialEvents
+        .filter((event) => event.affectsCash)
+        .sort((a, b) => {
+          const amountDiff = Number(b.amount || 0) - Number(a.amount || 0)
+          if (amountDiff !== 0) return amountDiff
+          return new Date(a.date).getTime() - new Date(b.date).getTime()
+        })
+        .slice(0, 5),
+    [financialEvents]
+  )
+
+  const riskLabels: Record<CashflowRiskLevel, string> = {
+    ok: 'Estable',
+    caution: 'Precaución',
+    risk: 'Riesgo',
+  }
+
+  const riskClasses: Record<CashflowRiskLevel, string> = {
+    ok: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    caution: 'bg-amber-50 text-amber-700 border-amber-100',
+    risk: 'bg-rose-50 text-rose-700 border-rose-100',
+  }
+
+  const confidenceLabels: Record<FinancialCalendarEvent['confidence'], string> = {
+    confirmed: 'Confirmado',
+    estimated: 'Estimado',
+    manual: 'Manual',
+  }
+
   const consolidatedCommitments = useMemo<CommitmentItem[]>(
     () =>
       buildConsolidatedCommitments(
@@ -442,6 +530,85 @@ export default function Home() {
             En MSI, el saldo usado de la tarjeta sube por el total de la compra; el presupuesto del mes se afecta por la mensualidad pendiente.
           </p>
         </Panel>
+
+        <section className="mt-8 mb-8">
+          <Panel title="Proyección de flujo" subtitle="Proyección estimada con base en ingresos y compromisos registrados">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo actual en cuentas</p>
+                <p className="mt-2 text-2xl font-black text-slate-950">{formatMoney(cashflowProjection.summary.currentBalance)}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-emerald-50 p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Próximo ingreso</p>
+                <p className="mt-2 text-2xl font-black text-emerald-700">
+                  {cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
+                </p>
+                <p className="mt-1 text-xs font-bold text-emerald-700">
+                  {cashflowProjection.summary.nextIncomeDate ? formatDate(cashflowProjection.summary.nextIncomeDate) : 'Sin ingreso esperado'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Compromisos a fin de mes</p>
+                <p className="mt-2 text-2xl font-black text-rose-600">{formatMoney(projectedCashOutflows)}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Cierre estimado del mes</p>
+                <p className={`mt-2 text-2xl font-black ${cashflowProjection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+                  {formatMoney(cashflowProjection.summary.projectedEndBalance)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo más bajo</p>
+                <p className={`mt-2 text-2xl font-black ${cashflowProjection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+                  {formatMoney(cashflowProjection.summary.lowestBalance)}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">{formatDate(cashflowProjection.summary.lowestBalanceDate)}</p>
+              </div>
+              <div className={`rounded-2xl border p-4 ${riskClasses[cashflowProjection.summary.riskLevel]}`}>
+                <p className="text-xs font-black uppercase tracking-widest">Nivel de riesgo</p>
+                <p className="mt-2 text-2xl font-black">{riskLabels[cashflowProjection.summary.riskLevel]}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-5">
+              {topCashflowEvents.map((event) => (
+                <div key={event.id} className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black leading-tight text-slate-900">{event.title}</p>
+                      <p className="mt-1 text-xs font-bold text-slate-400">{formatDate(event.date)}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
+                      event.confidence === 'confirmed'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : event.confidence === 'manual'
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'bg-amber-50 text-amber-700'
+                    }`}>
+                      {confidenceLabels[event.confidence]}
+                    </span>
+                  </div>
+                  <p className={`mt-3 text-xl font-black ${event.direction === 'inflow' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {event.direction === 'inflow' ? '+' : '-'} {formatMoney(event.amount)}
+                  </p>
+                </div>
+              ))}
+
+              {topCashflowEvents.length === 0 && (
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-6 text-center text-sm font-bold text-slate-400 lg:col-span-5">
+                  No hay eventos de flujo proyectados para el resto del mes.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500 md:flex-row md:items-center md:justify-between">
+              <span>Compras con tarjeta y MSI se muestran como compromisos; el efectivo baja cuando corresponde pagarlos.</span>
+              <Link href="/flujo" className="font-black uppercase tracking-widest text-slate-900 hover:text-emerald-600">
+                Ver detalle
+              </Link>
+            </div>
+          </Panel>
+        </section>
 
         <section className="mt-8 mb-8">
           <div className="mb-4">

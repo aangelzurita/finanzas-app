@@ -63,7 +63,11 @@ export type CreditCard = {
 
 export type Debt = {
   id: string
+  name?: string
   current_balance: number
+  monthly_payment?: number | null
+  start_date?: string | null
+  status?: string | null
 }
 
 export type BudgetProgress = {
