@@ -5,6 +5,11 @@ import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 
+function isMissingExternalAccountColumn(error: { code?: string; message?: string } | null) {
+    const message = error?.message?.toLowerCase() || ''
+    return error?.code === 'PGRST204' || (message.includes('is_external') || message.includes('include_in_balance'))
+}
+
 export default function EditarCuentaPage() {
     const supabase = createClient()
     const router = useRouter()
@@ -21,6 +26,7 @@ export default function EditarCuentaPage() {
     const [institution, setInstitution] = useState('')
     const [accountType, setAccountType] = useState('debit')
     const [currentBalance, setCurrentBalance] = useState('')
+    const [isExternal, setIsExternal] = useState(false)
 
     useEffect(() => {
         void loadAccount()
@@ -44,6 +50,7 @@ export default function EditarCuentaPage() {
         setInstitution(data.institution || '')
         setAccountType(data.account_type)
         setCurrentBalance(String(data.current_balance))
+        setIsExternal(data.is_external === true || data.include_in_balance === false)
         setLoading(false)
     }
 
@@ -63,16 +70,27 @@ export default function EditarCuentaPage() {
         if (!name.trim()) return fail('Ingresa el nombre de la cuenta.')
         if (currentBalance === '') return fail('Ingresa el saldo.')
 
-        const { error } = await supabase
+        const payload: Record<string, unknown> = {
+            name: name.trim(),
+            institution: institution.trim() || null,
+            account_type: accountType,
+            initial_balance: Number(currentBalance),
+            current_balance: Number(currentBalance),
+            is_external: isExternal,
+            include_in_balance: !isExternal,
+        }
+
+        let { error } = await supabase
             .from('accounts')
-            .update({
-                name: name.trim(),
-                institution: institution.trim() || null,
-                account_type: accountType,
-                initial_balance: Number(currentBalance),
-                current_balance: Number(currentBalance),
-            })
+            .update(payload)
             .eq('id', accountId)
+
+        if (error && isMissingExternalAccountColumn(error)) {
+            delete payload.is_external
+            delete payload.include_in_balance
+            const retry = await supabase.from('accounts').update(payload).eq('id', accountId)
+            error = retry.error
+        }
 
         if (error) {
             fail(error.message)
@@ -217,6 +235,25 @@ export default function EditarCuentaPage() {
                                     </div>
                                 </Field>
                             </div>
+
+                            <label className="flex cursor-pointer items-start gap-4 rounded-[2rem] border-2 border-slate-100 bg-slate-50/50 p-5">
+                                <div className="relative mt-1">
+                                    <input
+                                        type="checkbox"
+                                        className="peer hidden"
+                                        checked={isExternal}
+                                        onChange={(e) => setIsExternal(e.target.checked)}
+                                    />
+                                    <div className="h-6 w-11 rounded-full bg-slate-200 transition-colors peer-checked:bg-sky-500"></div>
+                                    <div className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
+                                </div>
+                                <div>
+                                    <span className="block text-sm font-black uppercase text-slate-900">Cuenta externa / no propia</span>
+                                    <span className="block text-xs font-bold text-slate-400">
+                                        Se puede usar como referencia, pero no suma al saldo personal ni a la proyección.
+                                    </span>
+                                </div>
+                            </label>
                         </div>
 
                         <div className="pt-6">

@@ -26,6 +26,7 @@ import {
 } from '@/lib/dashboard'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Panel } from '@/components/ui/Panel'
+import { QuickNav } from '@/components/ui/QuickNav'
 import {
   getPendingInstallmentAmount,
   getInstallmentDisplayState,
@@ -338,11 +339,17 @@ export default function Home() {
         recurringCharges: recurring,
         installments: filteredInstallmentsForDashboard,
         creditCards,
-        debts,
+        debts: debts.map((debt) => {
+          const paymentAccount = accounts.find((account) => account.id === debt.payment_account_id)
+          return {
+            ...debt,
+            payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
+          }
+        }),
         from: new Date(),
         to: projectionEndDate,
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, projectionEndDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, projectionEndDate]
   )
 
   const cashflowProjection = useMemo(
@@ -483,6 +490,8 @@ export default function Home() {
             {loadError}
           </div>
         )}
+
+        <QuickNav />
 
         <Panel title="Lectura del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta antes de revisar disponibilidad, presión, riesgo y fugas">
           <div className="grid gap-4 md:grid-cols-3">

@@ -6,6 +6,13 @@ import { createClient } from '@/lib/supabase-browser'
 import { formatMoney } from '@/lib/utils'
 import { KpiCard } from '@/components/ui/KpiCard'
 
+type Account = {
+    id: string
+    name: string
+    is_external?: boolean | null
+    include_in_balance?: boolean | null
+}
+
 type Debt = {
     id: string
     name: string
@@ -13,13 +20,26 @@ type Debt = {
     total_amount: number
     current_balance: number
     monthly_payment: number | null
+    next_payment_date?: string | null
+    payment_frequency?: string | null
+    payment_account_id?: string | null
     status: string
+}
+
+const paymentFrequencyLabels: Record<string, string> = {
+    one_time: 'Unica vez',
+    weekly: 'Semanal',
+    biweekly: 'Quincenal',
+    monthly: 'Mensual',
+    quarterly: 'Trimestral',
+    yearly: 'Anual',
 }
 
 export default function DeudasPage() {
     const supabase = createClient()
     const [loading, setLoading] = useState(true)
     const [debts, setDebts] = useState<Debt[]>([])
+    const [accounts, setAccounts] = useState<Account[]>([])
     const [message, setMessage] = useState('')
 
     useEffect(() => {
@@ -34,16 +54,20 @@ export default function DeudasPage() {
             return
         }
 
-        const { data, error } = await supabase
-            .from('debts')
-            .select('*')
-            .neq('status', 'canceled')
-            .order('created_at', { ascending: false })
+        const [{ data, error }, { data: accountsData }] = await Promise.all([
+            supabase
+                .from('debts')
+                .select('*')
+                .neq('status', 'canceled')
+                .order('created_at', { ascending: false }),
+            supabase.from('accounts').select('*').eq('is_active', true).order('name'),
+        ])
 
         if (error) {
             setMessage(error.message)
         } else {
             setDebts((data as Debt[]) ?? [])
+            setAccounts((accountsData as Account[]) ?? [])
         }
         setLoading(false)
     }
@@ -53,6 +77,8 @@ export default function DeudasPage() {
         mensual: debts.reduce((acc, d) => acc + Number(d.monthly_payment || 0), 0),
         cantidad: debts.length
     }
+
+    const accountMap = new Map(accounts.map((account) => [account.id, account]))
 
     if (loading) {
         return (
@@ -161,6 +187,21 @@ export default function DeudasPage() {
                                         <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
                                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Mensualidad</p>
                                             <p className="text-xl font-black text-slate-900">{formatMoney(Number(debt.monthly_payment || 0))}</p>
+                                        </div>
+                                        <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Próximo pago</p>
+                                            <p className="text-sm font-black text-slate-900">
+                                                {debt.next_payment_date ? new Date(`${debt.next_payment_date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : 'Sin fecha'}
+                                            </p>
+                                            <p className="mt-1 text-xs font-bold text-slate-400">
+                                                {paymentFrequencyLabels[debt.payment_frequency || 'monthly'] || 'Mensual'}
+                                            </p>
+                                            {debt.payment_account_id && (
+                                                <p className="mt-1 text-xs font-bold text-sky-700">
+                                                    {accountMap.get(debt.payment_account_id)?.name || 'Cuenta vinculada'}
+                                                    {accountMap.get(debt.payment_account_id)?.is_external === true || accountMap.get(debt.payment_account_id)?.include_in_balance === false ? ' · externa' : ''}
+                                                </p>
+                                            )}
                                         </div>
                                         <Link
                                             href={`/deudas/${debt.id}/editar`}

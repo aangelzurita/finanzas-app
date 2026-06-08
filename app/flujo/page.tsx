@@ -38,6 +38,8 @@ type Account = {
   id: string
   account_type: string
   current_balance: number
+  is_external?: boolean | null
+  include_in_balance?: boolean | null
 }
 
 type SimulationForm = {
@@ -158,7 +160,7 @@ export default function FlujoPage() {
       { data: cardData, error: cardError },
       { data: debtsData, error: debtsError },
     ] = await Promise.all([
-      supabase.from('accounts').select('id, account_type, current_balance').eq('is_active', true),
+      supabase.from('accounts').select('*').eq('is_active', true),
       supabase.from('income_schedules').select('*').eq('is_active', true).order('next_income_date', { ascending: true }),
       supabase.from('reminders').select('id, title, due_date, amount, status, reminder_type').eq('status', 'pending').order('due_date', { ascending: true }),
       supabase.from('recurring_charges').select('*').eq('is_active', true),
@@ -167,7 +169,7 @@ export default function FlujoPage() {
         .from('credit_cards')
         .select('id, name, current_balance, payment_due_day, minimum_payment, no_interest_payment')
         .eq('is_active', true),
-      supabase.from('debts').select('id, name, current_balance, monthly_payment, start_date, status').neq('status', 'canceled'),
+      supabase.from('debts').select('*').neq('status', 'canceled'),
     ])
 
     const firstError = [
@@ -202,10 +204,22 @@ export default function FlujoPage() {
   const currentBalance = useMemo(
     () =>
       accounts
+        .filter((account) => account.is_external !== true && account.include_in_balance !== false)
         .filter((account) => ['cash', 'debit'].includes(account.account_type))
         .reduce((acc, account) => acc + Number(account.current_balance || 0), 0),
     [accounts]
   )
+
+  const debtsWithPaymentContext = useMemo(() => {
+    const accountMap = new Map(accounts.map((account) => [account.id, account]))
+    return debts.map((debt) => {
+      const paymentAccount = debt.payment_account_id ? accountMap.get(debt.payment_account_id) : null
+      return {
+        ...debt,
+        payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
+      }
+    })
+  }, [accounts, debts])
 
   const endDate = useMemo(() => endDateForHorizon(horizon), [horizon])
 
@@ -217,11 +231,11 @@ export default function FlujoPage() {
         recurringCharges: recurring,
         installments,
         creditCards: cards,
-        debts,
+        debts: debtsWithPaymentContext,
         from: new Date(),
         to: endDate,
       }),
-    [incomeSchedules, reminders, recurring, installments, cards, debts, endDate]
+    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, endDate]
   )
 
   const projection = useMemo(
@@ -353,7 +367,7 @@ export default function FlujoPage() {
               </p>
             </div>
             {simulationResult && (
-              <span className={`rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${recommendationClasses[simulationResult.recommendation]}`}>
+              <span className={`finance-pulse-in rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${recommendationClasses[simulationResult.recommendation]}`}>
                 {recommendationLabels[simulationResult.recommendation]}
               </span>
             )}
@@ -459,7 +473,7 @@ export default function FlujoPage() {
                 <p className="mt-1 text-xs font-bold text-slate-500">{formatDate(simulationResult.lowestBalanceDate)}</p>
               </div>
 
-              <div className={`rounded-2xl border p-4 lg:col-span-5 ${recommendationClasses[simulationResult.recommendation]}`}>
+              <div className={`finance-pulse-in rounded-2xl border p-4 lg:col-span-5 ${recommendationClasses[simulationResult.recommendation]}`}>
                 <p className="text-xs font-black uppercase tracking-widest">Recomendación</p>
                 <p className="mt-2 text-2xl font-black">{recommendationLabels[simulationResult.recommendation]}</p>
               </div>
@@ -510,7 +524,7 @@ export default function FlujoPage() {
           <KpiCard title="Riesgo" value={riskLabels[projection.summary.riskLevel]} valueClassName={riskClasses[projection.summary.riskLevel]} />
         </div>
 
-        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="finance-soft-pop mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
           <div className="mb-5">
             <h2 className="text-2xl font-black text-slate-900">Saldo proyectado</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">

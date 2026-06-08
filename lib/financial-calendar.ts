@@ -80,6 +80,10 @@ export type FinancialCalendarDebt = {
   monthly_payment?: number | null
   start_date?: string | null
   status?: string | null
+  next_payment_date?: string | null
+  payment_frequency?: 'one_time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly' | null
+  payment_account_id?: string | null
+  payment_account_is_external?: boolean
 }
 
 type BuildFinancialCalendarOptions = {
@@ -206,6 +210,25 @@ function nextRecurringDate(
   }
 
   return addMonthsOnDay(current, day)
+}
+
+function nextDebtPaymentDate(
+  frequency: NonNullable<FinancialCalendarDebt['payment_frequency']>,
+  current: Date
+) {
+  if (frequency === 'weekly') return addDays(current, 7)
+  if (frequency === 'biweekly') return addDays(current, 14)
+  if (frequency === 'quarterly') {
+    const next = new Date(current)
+    next.setMonth(next.getMonth() + 3)
+    return next
+  }
+  if (frequency === 'yearly') {
+    const next = new Date(current)
+    next.setFullYear(next.getFullYear() + 1)
+    return next
+  }
+  return addMonthsOnDay(current, current.getDate())
 }
 
 export function buildIncomeScheduleEvents(
@@ -421,31 +444,52 @@ export function buildDebtPaymentEvents(
 ): FinancialCalendarEvent[] {
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
+  const maxEventsPerSchedule = options.maxEventsPerSchedule ?? 24
 
   const events: FinancialCalendarEvent[] = []
 
   debts
     .filter((debt) => (debt.status || 'active') === 'active')
-    .filter((debt) => Number(debt.current_balance || 0) > 0 && Number(debt.monthly_payment || 0) > 0)
-    .filter((debt) => Boolean(debt.start_date))
+    .filter((debt) => Number(debt.current_balance || 0) > 0)
     .forEach((debt) => {
-      const startDate = parseDateOnly(debt.start_date || formatDateOnly(from))
-      if (!isValidDate(startDate)) return
-      const dueDate = firstDateOnOrAfter(from, startDate.getDate())
+      const amount = Number(debt.monthly_payment || 0)
+      const paymentDate = debt.next_payment_date || debt.start_date
+      if (!paymentDate) return
 
-      events.push({
-        id: `debt_payment-${debt.id}-${formatDateOnly(dueDate)}`,
-        date: formatDateOnly(dueDate),
-        title: `Pago ${debt.name || 'deuda'}`,
-        amount: Number(debt.monthly_payment || 0),
-        direction: 'outflow' as const,
-        sourceType: 'debt_payment' as const,
-        debtId: debt.id,
-        confidence: 'estimated' as const,
-        eventStatus: 'estimated' as const,
-        affectsCash: true,
-        affectsBudget: false,
-      })
+      let cursor = parseDateOnly(paymentDate)
+      if (!isValidDate(cursor)) return
+
+      const frequency = debt.payment_frequency || 'monthly'
+      let guard = 0
+
+      while (cursor < from && frequency !== 'one_time' && guard < maxEventsPerSchedule) {
+        cursor = nextDebtPaymentDate(frequency, cursor)
+        guard += 1
+      }
+
+      while (cursor <= to && guard < maxEventsPerSchedule) {
+        const hasAmount = amount > 0
+        const affectsCash = hasAmount && debt.payment_account_is_external !== true
+
+        events.push({
+          id: `debt_payment-${debt.id}-${formatDateOnly(cursor)}`,
+          date: formatDateOnly(cursor),
+          title: hasAmount ? `Pago ${debt.name || 'deuda'}` : `Pago ${debt.name || 'deuda'} pendiente por confirmar`,
+          amount,
+          direction: hasAmount ? 'outflow' as const : 'neutral' as const,
+          sourceType: 'debt_payment' as const,
+          accountId: debt.payment_account_id || undefined,
+          debtId: debt.id,
+          confidence: 'estimated' as const,
+          eventStatus: hasAmount && debt.payment_account_is_external !== true ? 'estimated' as const : 'informational' as const,
+          affectsCash,
+          affectsBudget: false,
+        })
+
+        if (frequency === 'one_time') break
+        cursor = nextDebtPaymentDate(frequency, cursor)
+        guard += 1
+      }
     })
 
   return events

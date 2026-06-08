@@ -8,12 +8,37 @@ import { validateDebtAmounts } from '@/lib/debt-validation'
 
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
 
+type Account = {
+    id: string
+    name: string
+    account_type: string
+    is_external?: boolean | null
+    include_in_balance?: boolean | null
+}
+
 type Transaction = {
     id: string
     transaction_date: string
     amount: number
     description: string | null
     transaction_type: string
+}
+
+const paymentFrequencyLabels = {
+    one_time: 'Unica vez',
+    weekly: 'Semanal',
+    biweekly: 'Quincenal',
+    monthly: 'Mensual',
+    quarterly: 'Trimestral',
+    yearly: 'Anual',
+}
+
+function isMissingDebtScheduleColumn(error: { code?: string; message?: string } | null) {
+    const message = error?.message?.toLowerCase() || ''
+    return error?.code === 'PGRST204' ||
+        message.includes('next_payment_date') ||
+        message.includes('payment_frequency') ||
+        message.includes('payment_account_id')
 }
 
 export default function EditarDeudaPage() {
@@ -27,6 +52,7 @@ export default function EditarDeudaPage() {
     const [message, setMessage] = useState('')
     const [messageType, setMessageType] = useState<'error' | 'success' | ''>('')
     const [history, setHistory] = useState<Transaction[]>([])
+    const [accounts, setAccounts] = useState<Account[]>([])
 
     const [form, setForm] = useState({
         name: '',
@@ -34,6 +60,9 @@ export default function EditarDeudaPage() {
         total_amount: '',
         current_balance: '',
         monthly_payment: '',
+        next_payment_date: '',
+        payment_frequency: 'monthly',
+        payment_account_id: '',
         interest_rate: '',
         status: '',
         notes: ''
@@ -45,9 +74,10 @@ export default function EditarDeudaPage() {
 
     const loadData = async () => {
         setLoading(true)
-        const [debtRes, historyRes] = await Promise.all([
+        const [debtRes, historyRes, accountsRes] = await Promise.all([
             supabase.from('debts').select('*').eq('id', debtId).single(),
-            supabase.from('transactions').select('*').eq('related_debt_id', debtId).order('transaction_date', { ascending: false })
+            supabase.from('transactions').select('*').eq('related_debt_id', debtId).order('transaction_date', { ascending: false }),
+            supabase.from('accounts').select('*').eq('is_active', true).neq('account_type', 'credit_card').order('name')
         ])
 
         if (debtRes.error || !debtRes.data) {
@@ -61,11 +91,15 @@ export default function EditarDeudaPage() {
                 total_amount: String(data.total_amount),
                 current_balance: String(data.current_balance),
                 monthly_payment: String(data.monthly_payment || ''),
+                next_payment_date: data.next_payment_date || '',
+                payment_frequency: data.payment_frequency || 'monthly',
+                payment_account_id: data.payment_account_id || '',
                 interest_rate: String(data.interest_rate || ''),
                 status: data.status,
                 notes: data.notes || ''
             })
             setHistory((historyRes.data as Transaction[]) ?? [])
+            setAccounts((accountsRes.data as Account[]) ?? [])
         }
         setLoading(false)
     }
@@ -96,22 +130,33 @@ export default function EditarDeudaPage() {
             return
         }
 
-        const payload = {
+        const payload: Record<string, unknown> = {
             name: form.name,
             institution: form.institution || null,
             total_amount: totalAmount,
             current_balance: currentBalance,
             monthly_payment: monthlyPayment,
+            next_payment_date: form.next_payment_date || null,
+            payment_frequency: form.payment_frequency,
+            payment_account_id: form.payment_account_id || null,
             interest_rate: form.interest_rate ? Number(form.interest_rate) : null,
             status: form.status,
             notes: form.notes || null,
             updated_at: new Date().toISOString()
         }
 
-        const { error } = await supabase
+        let { error } = await supabase
             .from('debts')
             .update(payload)
             .eq('id', debtId)
+
+        if (error && isMissingDebtScheduleColumn(error)) {
+            delete payload.next_payment_date
+            delete payload.payment_frequency
+            delete payload.payment_account_id
+            const retry = await supabase.from('debts').update(payload).eq('id', debtId)
+            error = retry.error
+        }
 
         if (error) {
             setMessage(`Error: ${error.message}`)
@@ -270,6 +315,48 @@ export default function EditarDeudaPage() {
                                 onChange={handleChange}
                                 className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Próxima fecha de pago</label>
+                            <input
+                                type="date"
+                                name="next_payment_date"
+                                value={form.next_payment_date}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Frecuencia de pago</label>
+                            <select
+                                name="payment_frequency"
+                                value={form.payment_frequency}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            >
+                                {Object.entries(paymentFrequencyLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Cuenta de pago habitual</label>
+                            <select
+                                name="payment_account_id"
+                                value={form.payment_account_id}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            >
+                                <option value="">Sin cuenta vinculada</option>
+                                {accounts.map((account) => (
+                                    <option key={account.id} value={account.id}>
+                                        {account.name}{account.is_external === true || account.include_in_balance === false ? ' · externa' : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <div>

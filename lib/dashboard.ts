@@ -12,6 +12,8 @@ export type Account = {
   name: string
   account_type: string
   current_balance: number
+  is_external?: boolean | null
+  include_in_balance?: boolean | null
 }
 
 export type Transaction = {
@@ -68,6 +70,10 @@ export type Debt = {
   monthly_payment?: number | null
   start_date?: string | null
   status?: string | null
+  next_payment_date?: string | null
+  payment_frequency?: 'one_time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly' | null
+  payment_account_id?: string | null
+  payment_account_is_external?: boolean
 }
 
 export type BudgetProgress = {
@@ -157,11 +163,13 @@ export function buildDashboardMetrics(
   getPendingInstallmentAmount: (plan: CreditCardInstallment) => number,
   msiPurchaseIds: Set<string> = new Set()
 ) {
+  const personalAccounts = accounts.filter((account) => account.is_external !== true && account.include_in_balance !== false)
   const disponible = accounts
+    .filter((account) => personalAccounts.some((personal) => personal.id === account.id))
     .filter((account) => ['cash', 'debit'].includes(account.account_type))
     .reduce((acc, account) => acc + Number(account.current_balance || 0), 0)
 
-  const deuda = accounts
+  const deuda = personalAccounts
     .filter((account) => account.account_type === 'credit_card')
     .reduce((acc, account) => acc + Number(account.current_balance || 0), 0) +
     debts.reduce((acc, debt) => acc + Number(debt.current_balance || 0), 0)

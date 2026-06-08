@@ -12,6 +12,12 @@ type Account = {
     institution: string | null
     account_type: string
     current_balance: number
+    is_external?: boolean | null
+    include_in_balance?: boolean | null
+}
+
+function accountAffectsBalance(account: Account) {
+    return account.is_external !== true && account.include_in_balance !== false
 }
 
 export default function CuentasPage() {
@@ -49,12 +55,15 @@ export default function CuentasPage() {
 
     const totals = {
         disponible: accounts
+            .filter(accountAffectsBalance)
             .filter(a => ['cash', 'debit', 'savings'].includes(a.account_type))
             .reduce((acc, a) => acc + Number(a.current_balance || 0), 0),
         deuda: accounts
+            .filter(accountAffectsBalance)
             .filter(a => a.account_type === 'credit_card')
             .reduce((acc, a) => acc + Number(a.current_balance || 0), 0),
         inversion: accounts
+            .filter(accountAffectsBalance)
             .filter(a => a.account_type === 'investment')
             .reduce((acc, a) => acc + Number(a.current_balance || 0), 0),
     }
@@ -143,6 +152,11 @@ export default function CuentasPage() {
                                     <tr key={account.id} className="hover:bg-slate-50/30 transition-colors group">
                                         <td className="px-8 py-5">
                                             <p className="text-sm font-bold text-slate-900">{account.name}</p>
+                                            {!accountAffectsBalance(account) && (
+                                                <span className="mt-1 inline-flex rounded-full bg-sky-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-sky-700">
+                                                    Externa
+                                                </span>
+                                            )}
                                         </td>
 
                                         <td className="px-8 py-5">
@@ -157,6 +171,9 @@ export default function CuentasPage() {
 
                                         <td className="px-8 py-5 text-right font-black text-slate-900">
                                             {formatMoney(Number(account.current_balance || 0))}
+                                            {!accountAffectsBalance(account) && (
+                                                <p className="mt-1 text-xs font-bold text-slate-400">No afecta saldo</p>
+                                            )}
                                         </td>
 
                                         <td className="px-8 py-5">

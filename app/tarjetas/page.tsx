@@ -390,7 +390,7 @@ export default function TarjetasPage() {
         </div>
 
         {bestAdvisorCard && (
-          <div className="mb-8 rounded-[2.5rem] border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/5 transition-all hover:shadow-emerald-900/10">
+          <div className="finance-pulse-in mb-8 rounded-[2.5rem] border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/5 transition-all hover:shadow-emerald-900/10">
             <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-2">
               <span className="w-2 h-4 bg-emerald-500 rounded-full" />
               Asesor de tarjetas

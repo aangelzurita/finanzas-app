@@ -2,9 +2,34 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { validateDebtAmounts } from '@/lib/debt-validation'
+
+type Account = {
+    id: string
+    name: string
+    account_type: string
+    is_external?: boolean | null
+    include_in_balance?: boolean | null
+}
+
+const paymentFrequencyLabels = {
+    one_time: 'Unica vez',
+    weekly: 'Semanal',
+    biweekly: 'Quincenal',
+    monthly: 'Mensual',
+    quarterly: 'Trimestral',
+    yearly: 'Anual',
+}
+
+function isMissingDebtScheduleColumn(error: { code?: string; message?: string } | null) {
+    const message = error?.message?.toLowerCase() || ''
+    return error?.code === 'PGRST204' ||
+        message.includes('next_payment_date') ||
+        message.includes('payment_frequency') ||
+        message.includes('payment_account_id')
+}
 
 export default function NuevaDeudaPage() {
     const supabase = createClient()
@@ -12,6 +37,7 @@ export default function NuevaDeudaPage() {
 
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState('')
+    const [accounts, setAccounts] = useState<Account[]>([])
 
     const [form, setForm] = useState({
         name: '',
@@ -19,12 +45,26 @@ export default function NuevaDeudaPage() {
         total_amount: '',
         initial_balance: '',
         monthly_payment: '',
+        next_payment_date: '',
+        payment_frequency: 'monthly',
+        payment_account_id: '',
         interest_rate: '',
         start_date: new Date().toISOString().split('T')[0],
         notes: ''
     })
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    useEffect(() => {
+        void supabase
+            .from('accounts')
+            .select('*')
+            .eq('is_active', true)
+            .neq('account_type', 'credit_card')
+            .order('name')
+            .then(({ data }) => setAccounts((data as Account[]) ?? []))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
     }
 
@@ -55,7 +95,7 @@ export default function NuevaDeudaPage() {
             return
         }
 
-        const payload = {
+        const payload: Record<string, unknown> = {
             user_id: sessionData.session.user.id,
             name: form.name,
             institution: form.institution || null,
@@ -64,13 +104,25 @@ export default function NuevaDeudaPage() {
             initial_balance: currentBalance,
             current_balance: currentBalance,
             monthly_payment: monthlyPayment,
+            next_payment_date: form.next_payment_date || null,
+            payment_frequency: form.payment_frequency,
+            payment_account_id: form.payment_account_id || null,
             interest_rate: form.interest_rate ? Number(form.interest_rate) : null,
             start_date: form.start_date,
             notes: form.notes || null,
             status: 'active'
         }
 
-        const { error } = await supabase.from('debts').insert(payload)
+        let { error } = await supabase.from('debts').insert(payload)
+
+        if (error && isMissingDebtScheduleColumn(error)) {
+            const fallbackPayload = { ...payload }
+            delete fallbackPayload.next_payment_date
+            delete fallbackPayload.payment_frequency
+            delete fallbackPayload.payment_account_id
+            const retry = await supabase.from('debts').insert(fallbackPayload)
+            error = retry.error
+        }
 
         if (error) {
             setMessage(`Error: ${error.message}`)
@@ -180,6 +232,48 @@ export default function NuevaDeudaPage() {
                                 placeholder="Monto fijo al mes"
                                 className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg placeholder:text-slate-300"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Próxima fecha de pago</label>
+                            <input
+                                type="date"
+                                name="next_payment_date"
+                                value={form.next_payment_date}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Frecuencia de pago</label>
+                            <select
+                                name="payment_frequency"
+                                value={form.payment_frequency}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            >
+                                {Object.entries(paymentFrequencyLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Cuenta de pago habitual</label>
+                            <select
+                                name="payment_account_id"
+                                value={form.payment_account_id}
+                                onChange={handleChange}
+                                className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all"
+                            >
+                                <option value="">Sin cuenta vinculada</option>
+                                {accounts.map((account) => (
+                                    <option key={account.id} value={account.id}>
+                                        {account.name}{account.is_external === true || account.include_in_balance === false ? ' · externa' : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <div>
