@@ -17,6 +17,15 @@ import { type CreditCardInstallment } from '@/lib/credit-card-installments'
 import { type RecurringCharge } from '@/lib/recurring-charges'
 import { createClient } from '@/lib/supabase-browser'
 import { formatDate, formatMoney } from '@/lib/utils'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 type Horizon = '15d' | 'month' | '60d'
 
@@ -170,6 +179,22 @@ export default function FlujoPage() {
   )
 
   const pointsWithEvents = projection.points.filter((point) => point.events.length > 0)
+  const lowestPoint = projection.points.find((point) => point.date === projection.summary.lowestBalanceDate)
+  const lowestPointCashOutflows = (lowestPoint?.events || []).filter(
+    (event) => event.direction === 'outflow' && event.affectsCash
+  )
+  const lowestPointEvents = lowestPointCashOutflows.length > 0 ? lowestPointCashOutflows : (lowestPoint?.events || [])
+  const chartData = projection.points.map((point) => ({
+    date: point.date,
+    label: new Date(`${point.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+    saldo: point.endingBalance,
+  }))
+  const largestCashOutflow = Math.max(
+    0,
+    ...events
+      .filter((event) => event.direction === 'outflow' && event.affectsCash)
+      .map((event) => Number(event.amount || 0))
+  )
 
   if (loading) {
     return (
@@ -237,34 +262,113 @@ export default function FlujoPage() {
         <div className="grid gap-6 md:grid-cols-4 mb-8">
           <KpiCard title="Saldo actual" value={formatMoney(projection.summary.currentBalance)} />
           <KpiCard title="Cierre proyectado" value={formatMoney(projection.summary.projectedEndBalance)} valueClassName={projection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'} />
-          <KpiCard title="Saldo más bajo" value={formatMoney(projection.summary.lowestBalance)} subtitle={formatDate(projection.summary.lowestBalanceDate)} valueClassName={projection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'} />
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Saldo más bajo</p>
+            <p className={`mt-3 text-4xl font-bold tracking-tight ${projection.summary.lowestBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+              {formatMoney(projection.summary.lowestBalance)}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">{formatDate(projection.summary.lowestBalanceDate)}</p>
+            {lowestPointEvents.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Provocado por</p>
+                <div className="mt-2 space-y-1">
+                  {lowestPointEvents.slice(0, 3).map((event) => (
+                    <div key={event.id} className="flex items-center justify-between gap-3 text-xs font-bold">
+                      <span className="truncate text-slate-500">{event.title}</span>
+                      <span className={event.direction === 'inflow' ? 'text-emerald-600' : 'text-rose-600'}>
+                        {formatMoney(event.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <KpiCard title="Riesgo" value={riskLabels[projection.summary.riskLevel]} valueClassName={riskClasses[projection.summary.riskLevel]} />
+        </div>
+
+        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="mb-5">
+            <h2 className="text-2xl font-black text-slate-900">Saldo proyectado</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              La línea muestra el saldo después de aplicar los eventos de cada día.
+            </p>
+          </div>
+          <div className="h-72 w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 700, fontSize: 12 }} />
+                <YAxis hide domain={['auto', 'auto']} />
+                <Tooltip
+                  formatter={(value) => formatMoney(Number(value))}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.date ? formatDate(payload[0].payload.date) : ''}
+                  contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                />
+                <Area type="monotone" dataKey="saldo" stroke="#0f172a" fill="#e2e8f0" strokeWidth={3} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
         <div className="rounded-[2.5rem] border border-slate-200 bg-white shadow-xl overflow-hidden">
           <div className="border-b border-slate-100 px-8 py-6">
             <h2 className="text-2xl font-black text-slate-900">Eventos y saldo proyectado</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
-              Compras con tarjeta y MSI pueden mostrarse como compromisos; el efectivo baja solo en eventos que afectan caja.
+              El saldo mostrado en cada fecha es el saldo después de aplicar los eventos de ese día. Compras con tarjeta y MSI pueden mostrarse como compromisos; el efectivo baja solo en eventos que afectan caja.
             </p>
           </div>
 
           <div className="divide-y divide-slate-100">
             {pointsWithEvents.map((point) => (
-              <div key={point.date} className="grid gap-4 px-8 py-5 lg:grid-cols-12">
+              <div
+                key={point.date}
+                className={`grid gap-4 px-8 py-5 lg:grid-cols-12 ${
+                  point.date === projection.summary.lowestBalanceDate ? 'bg-amber-50/60' : ''
+                }`}
+              >
                 <div className="lg:col-span-3">
                   <p className="font-black text-slate-900">{formatDate(point.date)}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    Antes: {formatMoney(point.startingBalance)}
+                  </p>
                   <p className={`mt-1 text-sm font-black ${riskClasses[point.riskLevel]}`}>
-                    Saldo: {formatMoney(point.endingBalance)}
+                    Después: {formatMoney(point.endingBalance)}
                   </p>
                 </div>
 
                 <div className="space-y-3 lg:col-span-9">
                   {point.events.map((event) => (
-                    <div key={event.id} className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+                    <div
+                      key={event.id}
+                      className={`flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between ${
+                        event.direction === 'inflow'
+                          ? 'border-emerald-100 bg-emerald-50'
+                          : event.affectsCash && Number(event.amount || 0) === largestCashOutflow
+                            ? 'border-rose-200 bg-rose-50'
+                            : point.date === projection.summary.lowestBalanceDate && event.affectsCash
+                              ? 'border-amber-200 bg-amber-50'
+                              : 'border-slate-100 bg-slate-50'
+                      }`}
+                    >
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{event.title}</p>
+                          {point.date === projection.summary.lowestBalanceDate && event.affectsCash && (
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                              Saldo mínimo
+                            </span>
+                          )}
+                          {event.direction === 'inflow' && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                              Ingreso
+                            </span>
+                          )}
+                          {event.direction === 'outflow' && event.affectsCash && Number(event.amount || 0) === largestCashOutflow && (
+                            <span className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700">
+                              Pago grande
+                            </span>
+                          )}
                           <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
                             {confidenceLabels[event.confidence]}
                           </span>
