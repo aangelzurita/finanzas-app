@@ -643,9 +643,9 @@ export default function Home() {
   if (!session) return <LoginScreen />
 
   return (
-    <main className="min-h-screen bg-slate-50 pb-12">
+    <main className="finance-shell min-h-screen pb-12">
       {/* Header Premium */}
-      <section className="bg-slate-950 text-white relative overflow-hidden">
+      <section className="finance-surface-dark relative overflow-hidden text-white">
         <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl -mr-48 -mt-48" />
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -ml-48 -mb-48" />
 
@@ -679,7 +679,21 @@ export default function Home() {
         <QuickNav />
 
         <section className="mb-8">
-          <Panel title="Salud financiera" subtitle="Resumen ejecutivo financiero con base en tus registros actuales">
+          <Panel
+            title="Salud financiera"
+            subtitle="Resumen ejecutivo financiero con base en tus registros actuales"
+            className="border-slate-200/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/10"
+          >
+            <div className="mb-6 flex flex-col gap-3 rounded-[1.75rem] border border-slate-100 bg-slate-950 px-5 py-5 text-white sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">Lectura rápida</p>
+                <p className="mt-2 text-2xl font-black tracking-tight">Tu resumen ejecutivo para decidir antes de gastar</p>
+              </div>
+              <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
+                {nextIncomeHealth.status}
+              </span>
+            </div>
+
             <div className="grid gap-4 lg:grid-cols-4">
               <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[nextIncomeHealth.tone]}`}>
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -817,7 +831,7 @@ export default function Home() {
                 <p className="mt-4 text-sm font-bold text-slate-700">{leakHealth.text}</p>
               </div>
             </div>
-            <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+            <p className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
               Lectura estimada con base en tus registros actuales.
             </p>
           </Panel>

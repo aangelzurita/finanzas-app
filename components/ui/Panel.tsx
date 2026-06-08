@@ -16,10 +16,10 @@ export function Panel({
     className = "",
 }: PanelProps) {
     return (
-        <div className={`rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
-            <div className="mb-5">
-                <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-                {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+        <div className={`finance-card finance-soft-pop rounded-[2rem] p-5 sm:p-6 ${className}`}>
+            <div className="mb-5 flex flex-col gap-1">
+                <h2 className="text-xl font-black tracking-tight text-slate-950">{title}</h2>
+                {subtitle && <p className="max-w-3xl text-sm font-medium leading-relaxed text-slate-500">{subtitle}</p>}
             </div>
             {children}
         </div>

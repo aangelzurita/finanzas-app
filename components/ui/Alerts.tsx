@@ -15,7 +15,7 @@ export function AlertPill({ level, text }: AlertPillProps) {
     }
 
     return (
-        <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${styles[level]}`}>
+        <div className={`rounded-2xl border px-4 py-3 text-sm font-bold shadow-sm ${styles[level]}`}>
             {text}
         </div>
     )
@@ -39,9 +39,9 @@ export function AlertRow({ cardName, text, level }: AlertRowProps) {
     }
 
     return (
-        <div className={`rounded-2xl border px-4 py-3 ${styles[level]}`}>
-            <p className="font-semibold">{cardName}</p>
-            <p className="text-sm mt-1">{text}</p>
+        <div className={`rounded-2xl border px-4 py-3 shadow-sm ${styles[level]}`}>
+            <p className="font-black">{cardName}</p>
+            <p className="mt-1 text-sm font-semibold">{text}</p>
         </div>
     )
 }

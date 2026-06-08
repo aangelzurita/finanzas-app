@@ -16,12 +16,13 @@ export function KpiCard({
     valueClassName,
 }: KpiCardProps) {
     return (
-        <div className="finance-soft-pop rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">{title}</p>
-            <p className={`mt-3 text-4xl font-bold tracking-tight ${valueClassName ?? 'text-slate-900'}`}>
+        <div className="finance-card finance-hover finance-soft-pop relative overflow-hidden rounded-[2rem] p-6">
+            <div className="absolute right-4 top-4 h-12 w-12 rounded-full bg-slate-100/70" />
+            <p className="relative text-xs font-black uppercase tracking-[0.16em] text-slate-400">{title}</p>
+            <p className={`relative mt-3 text-3xl font-black tracking-tight sm:text-4xl ${valueClassName ?? 'text-slate-900'}`}>
                 {value}
             </p>
-            {subtitle && <p className="mt-2 text-sm text-slate-400">{subtitle}</p>}
+            {subtitle && <p className="relative mt-3 text-sm font-semibold leading-relaxed text-slate-500">{subtitle}</p>}
         </div>
     )
 }

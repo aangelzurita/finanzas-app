@@ -1,28 +1,31 @@
 import Link from 'next/link'
 
 const quickLinks = [
-  { href: '/cuentas', label: 'Cuentas' },
-  { href: '/movimientos', label: 'Movimientos' },
-  { href: '/tarjetas', label: 'Tarjetas' },
-  { href: '/deudas', label: 'Deudas' },
-  { href: '/flujo', label: 'Flujo' },
-  { href: '/ingresos', label: 'Ingresos' },
-  { href: '/recurrentes', label: 'Recurrentes' },
-  { href: '/recordatorios', label: 'Recordatorios' },
-  { href: '/presupuesto', label: 'Presupuesto' },
+  { href: '/cuentas', label: 'Cuentas', hint: 'Saldos' },
+  { href: '/movimientos', label: 'Movimientos', hint: 'Registro' },
+  { href: '/tarjetas', label: 'Tarjetas', hint: 'Crédito' },
+  { href: '/deudas', label: 'Deudas', hint: 'Pagos' },
+  { href: '/flujo', label: 'Flujo', hint: 'Proyección' },
+  { href: '/ingresos', label: 'Ingresos', hint: 'Esperados' },
+  { href: '/recurrentes', label: 'Recurrentes', hint: 'Fijos' },
+  { href: '/recordatorios', label: 'Recordatorios', hint: 'Alertas' },
+  { href: '/presupuesto', label: 'Presupuesto', hint: 'Control' },
 ]
 
 export function QuickNav() {
   return (
-    <nav className="mb-8 overflow-x-auto rounded-[2rem] border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex min-w-max gap-2">
+    <nav className="finance-card-strong finance-scrollbar mb-8 overflow-x-auto rounded-[2rem] p-2">
+      <div className="flex min-w-max gap-2 lg:grid lg:min-w-0 lg:grid-cols-9">
         {quickLinks.map((link) => (
           <Link
             key={link.href}
             href={link.href}
-            className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-950 hover:text-white active:scale-95"
+            className="group rounded-[1.35rem] border border-transparent bg-white/70 px-4 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:border-slate-200 hover:bg-slate-950 hover:text-white active:scale-95"
           >
-            {link.label}
+            <span className="block leading-tight">{link.label}</span>
+            <span className="mt-1 block text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-slate-300">
+              {link.hint}
+            </span>
           </Link>
         ))}
       </div>

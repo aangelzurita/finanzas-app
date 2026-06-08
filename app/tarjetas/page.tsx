@@ -121,8 +121,8 @@ export default function TarjetasPage() {
 
       setMessage('Recordatorios sincronizados correctamente.')
       setMessageType('success')
-    } catch (error: any) {
-      setMessage(error?.message || 'No se pudieron sincronizar los recordatorios.')
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : 'No se pudieron sincronizar los recordatorios.')
       setMessageType('error')
     } finally {
       setSyncingReminders(false)
@@ -329,10 +329,10 @@ export default function TarjetasPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-12">
-      <section className="bg-slate-950 text-white">
+    <main className="finance-shell min-h-screen pb-12">
+      <section className="finance-surface-dark text-white">
         <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <nav className="flex items-center gap-2 text-slate-400 text-sm mb-4">
                 <Link href="/" className="hover:text-white transition">Home</Link>
@@ -383,25 +383,25 @@ export default function TarjetasPage() {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3 mb-8">
+        <div className="mb-8 grid gap-6 md:grid-cols-3">
           <KpiCard title="Línea total" value={formatMoney(summary.totalLimit)} valueClassName="text-slate-900" />
           <KpiCard title="Saldo usado" value={formatMoney(summary.totalUsed)} valueClassName="text-rose-600" />
           <KpiCard title="Disponible" value={formatMoney(summary.totalAvailable)} valueClassName="text-emerald-600 font-bold" />
         </div>
 
         {bestAdvisorCard && (
-          <div className="finance-pulse-in mb-8 rounded-[2.5rem] border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/5 transition-all hover:shadow-emerald-900/10">
-            <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-              <span className="w-2 h-4 bg-emerald-500 rounded-full" />
+          <div className="finance-pulse-in finance-surface-dark mb-8 overflow-hidden rounded-[2.5rem] border border-slate-800 p-8 text-white shadow-2xl shadow-slate-950/20">
+            <p className="mb-3 flex items-center gap-2 text-sm font-black uppercase tracking-widest text-emerald-300">
+              <span className="h-4 w-2 rounded-full bg-emerald-400" />
               Asesor de tarjetas
             </p>
 
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h2 className="text-4xl font-extrabold text-slate-900 leading-tight">
-                  Usa <span className="text-emerald-500">{bestAdvisorCard.cardName}</span>
+                <h2 className="text-4xl font-black leading-tight tracking-tight text-white">
+                  Usa <span className="text-emerald-300">{bestAdvisorCard.cardName}</span>
                 </h2>
-                <p className="text-slate-500 text-lg mt-1 font-medium">
+                <p className="mt-2 max-w-2xl text-lg font-medium text-slate-300">
                   Mejor opción para una compra hecha hoy.
                 </p>
 
@@ -409,7 +409,7 @@ export default function TarjetasPage() {
                   {bestAdvisorCard.reasons.map((reason, index) => (
                     <span
                       key={index}
-                      className="rounded-full bg-slate-50 border border-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600"
+                      className="rounded-full border border-white/10 bg-white/10 px-4 py-1.5 text-sm font-bold text-slate-200"
                     >
                       {reason}
                     </span>
@@ -417,7 +417,7 @@ export default function TarjetasPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 min-w-[340px]">
+              <div className="grid min-w-[340px] grid-cols-2 gap-4">
                 <MiniStat label="Próximo corte" value={formatAdvisorDate(bestAdvisorCard.estimatedCutoffDate)} subvalue={`${bestAdvisorCard.daysUntilCutoff} días`} />
                 <MiniStat label="Próximo pago" value={formatAdvisorDate(bestAdvisorCard.estimatedPaymentDueDate)} />
                 <MiniStat label="Días para pagar" value={`${bestAdvisorCard.financingDaysIfUsedToday}`} valueClassName="text-emerald-600 font-black" />
@@ -430,26 +430,26 @@ export default function TarjetasPage() {
         )}
 
         {advisorResults.length > 0 && (
-          <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-lg">
+          <div className="finance-card-strong mb-8 rounded-[2.5rem] p-8">
             <div className="mb-6 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Ranking para usar hoy</h2>
+                <h2 className="text-2xl font-black tracking-tight text-slate-900">Ranking para usar hoy</h2>
                 <p className="mt-1 text-sm font-medium text-slate-500">
                   Excluye tarjetas departamentales como Liverpool y ordena por financiamiento, utilización, disponible y presión de pago.
                 </p>
               </div>
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">
-                Lectura estimada
+              <span className="finance-badge text-slate-500">
+                Liverpool excluida
               </span>
             </div>
 
             <div className="space-y-4">
               {advisorResults.map((item, index) => (
-                <div key={item.cardId} className="rounded-3xl border border-slate-100 bg-slate-50/60 p-5">
+                <div key={item.cardId} className="finance-hover rounded-3xl border border-slate-100 bg-white/80 p-5 shadow-sm">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white shadow-lg shadow-slate-900/20">
                           {index + 1}
                         </span>
                         <h3 className="text-xl font-black text-slate-900">{item.cardName}</h3>
@@ -484,9 +484,9 @@ export default function TarjetasPage() {
         )}
 
         {allAlerts.length > 0 && (
-          <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-lg">
-            <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-              <span className="w-2 h-8 bg-rose-500 rounded-full" />
+          <div className="finance-card-strong mb-8 rounded-[2.5rem] p-8">
+            <h2 className="mb-6 flex items-center gap-2 text-2xl font-black tracking-tight text-slate-900">
+              <span className="h-8 w-2 rounded-full bg-rose-500" />
               Alertas del mes
             </h2>
 
@@ -510,10 +510,11 @@ export default function TarjetasPage() {
             return (
               <div
                 key={card.id}
-                className="rounded-[2.5rem] border border-slate-100 bg-white p-8 shadow-lg hover:shadow-2xl transition-all group underline-offset-4 overflow-hidden relative"
+                className="finance-card finance-hover group relative overflow-hidden rounded-[2.5rem] p-8 underline-offset-4"
               >
+                <div className="absolute right-6 top-6 h-24 w-24 rounded-full bg-slate-100/70" />
                 <div className="flex items-start justify-between gap-4 mb-6">
-                  <div>
+                  <div className="relative">
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{card.bank || 'Banco'}</p>
                     <Link
                       href={`/tarjetas/${card.id}`}
@@ -523,7 +524,7 @@ export default function TarjetasPage() {
                     </Link>
                   </div>
 
-                  <div className={`rounded-2xl border px-4 py-2 text-sm font-black shadow-sm ${recommendation.bg} ${recommendation.color}`}>
+                  <div className={`relative rounded-2xl border px-4 py-2 text-sm font-black shadow-sm ${recommendation.bg} ${recommendation.color}`}>
                     {recommendation.text}
                   </div>
                 </div>
@@ -547,7 +548,7 @@ export default function TarjetasPage() {
                   <MiniStat label="% de uso" value={`${usagePercent.toFixed(1)}%`} />
                 </div>
 
-                <div className="mb-8 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
+                <div className="mb-8 rounded-3xl border border-slate-100 bg-white/70 p-6 shadow-inner">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Utilización</p>
                     <p className={`text-sm font-black ${usagePercent > 80 ? 'text-rose-600' : 'text-slate-700'}`}>

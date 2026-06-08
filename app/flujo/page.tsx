@@ -347,8 +347,8 @@ export default function FlujoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-12">
-      <section className="bg-slate-950 text-white">
+    <main className="finance-shell min-h-screen pb-12">
+      <section className="finance-surface-dark text-white">
         <div className="max-w-7xl mx-auto px-6 py-12">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -379,7 +379,7 @@ export default function FlujoPage() {
           </div>
         )}
 
-        <div className="mb-6 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-xl">
+        <div className="finance-card-strong mb-6 rounded-[2rem] p-3">
           <div className="grid gap-3 md:grid-cols-3">
             {Object.entries(horizonLabels).map(([value, label]) => (
               <button
@@ -398,7 +398,7 @@ export default function FlujoPage() {
           </div>
         </div>
 
-        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="finance-card-strong mb-8 rounded-[2.5rem] p-6">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-2xl font-black text-slate-900">Simular decisión</h2>
@@ -500,7 +500,7 @@ export default function FlujoPage() {
                 </div>
               )}
 
-              <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-lg">
+              <div className="finance-surface-dark rounded-[2rem] border border-slate-800 p-6 text-white shadow-2xl shadow-slate-950/20">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Asesor de Compra Inteligente</p>
@@ -545,7 +545,7 @@ export default function FlujoPage() {
 
               {purchaseAdvisorResult.bestOption && (
                 <div className="grid gap-4 lg:grid-cols-12">
-                  <div className="rounded-2xl border border-slate-100 bg-white p-5 lg:col-span-5">
+                  <div className="finance-card rounded-2xl p-5 lg:col-span-5">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-400">Motivos</p>
                     <div className="mt-3 space-y-2">
                       {purchaseAdvisorResult.bestOption.reasons.slice(0, 4).map((reason) => (
@@ -556,7 +556,7 @@ export default function FlujoPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-100 bg-white p-5 lg:col-span-7">
+                  <div className="finance-card rounded-2xl p-5 lg:col-span-7">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-400">Impacto proyectado</p>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       <div className="rounded-2xl bg-slate-50 p-4">
@@ -601,7 +601,7 @@ export default function FlujoPage() {
                 </div>
               )}
 
-              <div className="rounded-2xl border border-slate-100 bg-white p-5">
+              <div className="finance-card rounded-2xl p-5">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Comparativo</p>
                 <div className="mt-4 overflow-x-auto">
                   <table className="w-full min-w-[980px] text-left text-sm">
@@ -754,14 +754,14 @@ export default function FlujoPage() {
           <KpiCard title="Riesgo" value={riskLabels[projection.summary.riskLevel]} valueClassName={riskClasses[projection.summary.riskLevel]} />
         </div>
 
-        <div className="finance-soft-pop mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="finance-card-strong finance-soft-pop mb-8 rounded-[2.5rem] p-6">
           <div className="mb-5">
             <h2 className="text-2xl font-black text-slate-900">Saldo proyectado</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
               La línea muestra el saldo después de aplicar los eventos de cada día.
             </p>
           </div>
-          <div className="h-72 w-full min-w-0">
+          <div className="h-72 w-full min-w-0 rounded-[1.75rem] border border-slate-100 bg-white p-3 shadow-inner">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -772,14 +772,14 @@ export default function FlujoPage() {
                   labelFormatter={(_, payload) => payload?.[0]?.payload?.date ? formatDate(payload[0].payload.date) : ''}
                   contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                 />
-                <Area type="monotone" dataKey="saldo" stroke="#0f172a" fill="#e2e8f0" strokeWidth={3} />
+                <Area type="monotone" dataKey="saldo" stroke="#0f172a" fill="#dbeafe" strokeWidth={3} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="rounded-[2.5rem] border border-slate-200 bg-white shadow-xl overflow-hidden">
-          <div className="border-b border-slate-100 px-8 py-6">
+        <div className="finance-card-strong overflow-hidden rounded-[2.5rem]">
+          <div className="border-b border-slate-100 bg-white/70 px-8 py-6">
             <h2 className="text-2xl font-black text-slate-900">Eventos y saldo proyectado</h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
               El saldo mostrado en cada fecha es el saldo después de aplicar los eventos de ese día. Compras con tarjeta y MSI pueden mostrarse como compromisos; el efectivo baja solo en eventos que afectan caja. Pagos sin monto confirmado aparecen como pendientes y no reducen el saldo proyectado.
@@ -790,27 +790,29 @@ export default function FlujoPage() {
             {pointsWithEvents.map((point) => (
               <div
                 key={point.date}
-                className={`grid gap-4 px-8 py-5 lg:grid-cols-12 ${
+                className={`grid gap-4 px-8 py-6 lg:grid-cols-12 ${
                   point.date === projection.summary.lowestBalanceDate ? 'bg-amber-50/60' : ''
                 }`}
               >
                 <div className="lg:col-span-3">
-                  <p className="font-black text-slate-900">{formatDate(point.date)}</p>
-                  <p className="mt-1 text-xs font-bold text-slate-400">
+                  <div className="sticky top-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
+                    <p className="font-black text-slate-900">{formatDate(point.date)}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-400">
                     Antes: {formatMoney(point.startingBalance)}
-                  </p>
-                  <p className={`mt-1 text-sm font-black ${riskClasses[point.riskLevel]}`}>
-                    Después: {formatMoney(point.endingBalance)}
-                  </p>
+                    </p>
+                    <p className={`mt-3 rounded-2xl border px-3 py-2 text-sm font-black ${riskClasses[point.riskLevel]}`}>
+                      Después: {formatMoney(point.endingBalance)}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-3 lg:col-span-9">
+                <div className="relative space-y-3 border-l border-slate-200 pl-4 lg:col-span-9">
                   {point.events.map((event) => (
                     <div
                       key={event.id}
-                      className={`flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between ${
+                      className={`finance-hover relative flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between ${
                         event.direction === 'inflow'
-                          ? 'border-emerald-100 bg-emerald-50'
+                          ? 'border-emerald-100 bg-emerald-50 shadow-emerald-900/5'
                           : event.eventStatus === 'pending_confirmation'
                             ? 'border-amber-200 bg-amber-50'
                             : event.possibleDuplicate
@@ -822,6 +824,13 @@ export default function FlujoPage() {
                               : 'border-slate-100 bg-slate-50'
                       }`}
                     >
+                      <span className={`absolute -left-[1.42rem] top-5 h-3 w-3 rounded-full border-2 border-white ${
+                        event.direction === 'inflow'
+                          ? 'bg-emerald-500'
+                          : event.direction === 'neutral'
+                            ? 'bg-slate-400'
+                            : 'bg-rose-500'
+                      }`} />
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{event.title}</p>
