@@ -5,6 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
 import {
+  simulateCashflowDecision,
+  type SimulationResult,
+  type SimulationType,
+} from '@/lib/cashflow-simulator'
+import {
   buildFinancialCalendarEvents,
   getEndOfCurrentMonth,
   type FinancialCalendarCreditCard,
@@ -35,6 +40,14 @@ type Account = {
   current_balance: number
 }
 
+type SimulationForm = {
+  amount: string
+  date: string
+  type: SimulationType
+  months: string
+  title: string
+}
+
 const horizonLabels: Record<Horizon, string> = {
   '15d': '15 días',
   month: 'Este mes',
@@ -57,6 +70,26 @@ const confidenceLabels: Record<FinancialCalendarEvent['confidence'], string> = {
   confirmed: 'Confirmado',
   estimated: 'Estimado',
   manual: 'Manual',
+}
+
+const simulationTypeLabels: Record<SimulationType, string> = {
+  cash_expense: 'Gasto en efectivo',
+  credit_card_purchase: 'Compra con tarjeta',
+  installment_purchase: 'Compra a MSI',
+  debt_payment: 'Pago extra a deuda',
+  extra_income: 'Ingreso extra',
+}
+
+const recommendationLabels: Record<SimulationResult['recommendation'], string> = {
+  safe: 'Seguro',
+  caution: 'Precaución',
+  avoid: 'Evitar',
+}
+
+const recommendationClasses: Record<SimulationResult['recommendation'], string> = {
+  safe: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+  caution: 'border-amber-100 bg-amber-50 text-amber-700',
+  avoid: 'border-rose-100 bg-rose-50 text-rose-700',
 }
 
 function addDays(value: Date, days: number) {
@@ -84,6 +117,14 @@ export default function FlujoPage() {
   const [installments, setInstallments] = useState<CreditCardInstallment[]>([])
   const [cards, setCards] = useState<FinancialCalendarCreditCard[]>([])
   const [debts, setDebts] = useState<FinancialCalendarDebt[]>([])
+  const [simulationForm, setSimulationForm] = useState<SimulationForm>({
+    amount: '',
+    date: new Date().toISOString().slice(0, 10),
+    type: 'cash_expense',
+    months: '3',
+    title: '',
+  })
+  const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
 
   const loadData = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -178,6 +219,34 @@ export default function FlujoPage() {
     [currentBalance, events, endDate]
   )
 
+  const handleSimulationChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = event.target
+    setSimulationForm((prev) => ({ ...prev, [name]: value }))
+    setSimulationResult(null)
+  }
+
+  const handleSimulationSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+
+    const result = simulateCashflowDecision({
+      currentBalance,
+      baseEvents: events,
+      projectionStartDate: new Date(),
+      projectionEndDate: endDate,
+      simulation: {
+        amount: Number(simulationForm.amount),
+        date: simulationForm.date,
+        type: simulationForm.type,
+        months: Number(simulationForm.months),
+        title: simulationForm.title,
+      },
+    })
+
+    setSimulationResult(result)
+  }
+
   const pointsWithEvents = projection.points.filter((point) => point.events.length > 0)
   const lowestPoint = projection.points.find((point) => point.date === projection.summary.lowestBalanceDate)
   const lowestPointCashOutflows = (lowestPoint?.events || []).filter(
@@ -257,6 +326,144 @@ export default function FlujoPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="mb-8 rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">Simular decisión</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                Esta simulación no modifica tus datos ni crea movimientos.
+              </p>
+            </div>
+            {simulationResult && (
+              <span className={`rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${recommendationClasses[simulationResult.recommendation]}`}>
+                {recommendationLabels[simulationResult.recommendation]}
+              </span>
+            )}
+          </div>
+
+          <form onSubmit={handleSimulationSubmit} className="grid gap-4 lg:grid-cols-12 lg:items-end">
+            <label className="block lg:col-span-2">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Monto</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                name="amount"
+                value={simulationForm.amount}
+                onChange={handleSimulationChange}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              />
+            </label>
+
+            <label className="block lg:col-span-2">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Fecha</span>
+              <input
+                type="date"
+                name="date"
+                value={simulationForm.date}
+                onChange={handleSimulationChange}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              />
+            </label>
+
+            <label className="block lg:col-span-3">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Tipo</span>
+              <select
+                name="type"
+                value={simulationForm.type}
+                onChange={handleSimulationChange}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              >
+                {Object.entries(simulationTypeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+
+            {simulationForm.type === 'installment_purchase' && (
+              <label className="block lg:col-span-2">
+                <span className="text-xs font-black uppercase tracking-widest text-slate-400">Meses</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="36"
+                  name="months"
+                  value={simulationForm.months}
+                  onChange={handleSimulationChange}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+                />
+              </label>
+            )}
+
+            <label className={`block ${simulationForm.type === 'installment_purchase' ? 'lg:col-span-2' : 'lg:col-span-4'}`}>
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Concepto</span>
+              <input
+                name="title"
+                value={simulationForm.title}
+                onChange={handleSimulationChange}
+                placeholder="Opcional"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-6 py-4 font-black text-white shadow-lg transition hover:bg-slate-800 lg:col-span-1"
+            >
+              Simular
+            </button>
+          </form>
+
+          {simulationResult && (
+            <div className="mt-6 grid gap-4 lg:grid-cols-12">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:col-span-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Cierre actual</p>
+                <p className="mt-2 text-2xl font-black text-slate-900">{formatMoney(simulationResult.baseSummary.projectedEndBalance)}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:col-span-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Cierre simulado</p>
+                <p className={`mt-2 text-2xl font-black ${simulationResult.simulatedSummary.projectedEndBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                  {formatMoney(simulationResult.simulatedSummary.projectedEndBalance)}
+                </p>
+                <p className={`mt-1 text-xs font-bold ${simulationResult.impactEndBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {simulationResult.impactEndBalance >= 0 ? '+' : ''}{formatMoney(simulationResult.impactEndBalance)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:col-span-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo más bajo actual</p>
+                <p className="mt-2 text-2xl font-black text-slate-900">{formatMoney(simulationResult.baseSummary.lowestBalance)}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:col-span-3">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo más bajo simulado</p>
+                <p className={`mt-2 text-2xl font-black ${simulationResult.simulatedSummary.lowestBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                  {formatMoney(simulationResult.simulatedSummary.lowestBalance)}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">{formatDate(simulationResult.lowestBalanceDate)}</p>
+              </div>
+
+              <div className={`rounded-2xl border p-4 lg:col-span-5 ${recommendationClasses[simulationResult.recommendation]}`}>
+                <p className="text-xs font-black uppercase tracking-widest">Recomendación</p>
+                <p className="mt-2 text-2xl font-black">{recommendationLabels[simulationResult.recommendation]}</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-4 lg:col-span-7">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Lectura</p>
+                <div className="mt-3 space-y-2">
+                  {simulationResult.warnings.length > 0 ? (
+                    simulationResult.warnings.map((warning) => (
+                      <p key={warning} className="text-sm font-bold text-slate-600">{warning}</p>
+                    ))
+                  ) : (
+                    <p className="text-sm font-bold text-slate-600">
+                      Puedes hacerlo, pero tu saldo más bajo bajaría a {formatMoney(simulationResult.simulatedSummary.lowestBalance)}.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-6 md:grid-cols-4 mb-8">
