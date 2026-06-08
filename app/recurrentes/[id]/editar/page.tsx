@@ -22,6 +22,11 @@ type CreditCard = {
   name: string
 }
 
+function isMissingAffectsCashColumn(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() || ''
+  return error?.code === 'PGRST204' || (message.includes('affects_cash') && message.includes('schema cache'))
+}
+
 export default function EditarRecurrentePage() {
   const supabase = createClient()
   const router = useRouter()
@@ -145,24 +150,36 @@ export default function EditarRecurrentePage() {
 
     if (!validate()) return
 
-    const { error } = await supabase
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      description: description || null,
+      amount: Number(amount),
+      frequency,
+      charge_day: chargeDay ? Number(chargeDay) : null,
+      category_id: categoryId || null,
+      payment_method_type: paymentMethodType,
+      account_id: paymentMethodType === 'account' ? accountId : null,
+      credit_card_id: paymentMethodType === 'credit_card' ? creditCardId : null,
+      next_charge_date: nextChargePreview,
+      affects_cash: affectsCash,
+      is_active: isActive,
+      create_reminder: createReminder,
+    }
+
+    let { error } = await supabase
       .from('recurring_charges')
-      .update({
-        name: name.trim(),
-        description: description || null,
-        amount: Number(amount),
-        frequency,
-        charge_day: chargeDay ? Number(chargeDay) : null,
-        category_id: categoryId || null,
-        payment_method_type: paymentMethodType,
-        account_id: paymentMethodType === 'account' ? accountId : null,
-        credit_card_id: paymentMethodType === 'credit_card' ? creditCardId : null,
-        next_charge_date: nextChargePreview,
-        affects_cash: affectsCash,
-        is_active: isActive,
-        create_reminder: createReminder,
-      })
+      .update(payload)
       .eq('id', id)
+
+    if (error && isMissingAffectsCashColumn(error)) {
+      delete payload.affects_cash
+      const retry = await supabase
+        .from('recurring_charges')
+        .update(payload)
+        .eq('id', id)
+
+      error = retry.error
+    }
 
     if (error) {
       fail(error.message)

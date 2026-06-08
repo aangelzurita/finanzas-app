@@ -95,6 +95,10 @@ function parseDateOnly(value: string | Date) {
   return new Date(`${value}T12:00:00`)
 }
 
+function isValidDate(value: Date) {
+  return !Number.isNaN(value.getTime())
+}
+
 function formatDateOnly(value: Date) {
   return value.toISOString().slice(0, 10)
 }
@@ -262,14 +266,19 @@ export function buildReminderEvents(
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
 
-  return reminders
-    .filter((reminder) => (reminder.status || 'pending') === 'pending')
-    .map((reminder) => {
-      const amount = Number(reminder.amount || 0)
+  const events: FinancialCalendarEvent[] = []
 
-      return {
+  reminders
+    .filter((reminder) => (reminder.status || 'pending') === 'pending')
+    .forEach((reminder) => {
+      const amount = Number(reminder.amount || 0)
+      const dueDate = parseDateOnly(reminder.due_date)
+
+      if (!isValidDate(dueDate)) return
+
+      events.push({
         id: `reminder-${reminder.id}`,
-        date: formatDateOnly(parseDateOnly(reminder.due_date)),
+        date: formatDateOnly(dueDate),
         title: reminder.title,
         amount,
         direction: amount > 0 ? 'outflow' as const : 'neutral' as const,
@@ -278,8 +287,10 @@ export function buildReminderEvents(
         eventStatus: amount > 0 ? 'manual' as const : 'informational' as const,
         affectsCash: amount > 0,
         affectsBudget: false,
-      }
+      })
     })
+
+  return events
     .filter((event) => isWithinWindow(parseDateOnly(event.date), from, to))
 }
 
@@ -299,6 +310,8 @@ export function buildRecurringChargeEvents(
     const affectsCash = cashEnabled && charge.payment_method_type !== 'credit_card'
     let cursor = parseDateOnly(charge.next_charge_date)
     let guard = 0
+
+    if (!isValidDate(cursor)) return []
 
     while (cursor < from && guard < maxEventsPerSchedule) {
       cursor = nextRecurringDate(charge.frequency, charge.charge_day, cursor)
@@ -406,15 +419,18 @@ export function buildDebtPaymentEvents(
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
 
-  return debts
+  const events: FinancialCalendarEvent[] = []
+
+  debts
     .filter((debt) => (debt.status || 'active') === 'active')
     .filter((debt) => Number(debt.current_balance || 0) > 0 && Number(debt.monthly_payment || 0) > 0)
     .filter((debt) => Boolean(debt.start_date))
-    .map((debt) => {
+    .forEach((debt) => {
       const startDate = parseDateOnly(debt.start_date || formatDateOnly(from))
+      if (!isValidDate(startDate)) return
       const dueDate = firstDateOnOrAfter(from, startDate.getDate())
 
-      return {
+      events.push({
         id: `debt_payment-${debt.id}-${formatDateOnly(dueDate)}`,
         date: formatDateOnly(dueDate),
         title: `Pago ${debt.name || 'deuda'}`,
@@ -426,9 +442,20 @@ export function buildDebtPaymentEvents(
         eventStatus: 'estimated' as const,
         affectsCash: true,
         affectsBudget: false,
-      }
+      })
     })
+
+  return events
     .filter((event) => isWithinWindow(parseDateOnly(event.date), from, to))
+}
+
+function buildCalendarSource(label: string, build: () => FinancialCalendarEvent[]) {
+  try {
+    return build()
+  } catch (error) {
+    console.warn(`No se pudieron generar eventos de ${label}.`, error)
+    return []
+  }
 }
 
 export function buildFinancialCalendarEvents({
@@ -451,12 +478,12 @@ export function buildFinancialCalendarEvents({
   to?: string | Date
 }) {
   const events = [
-    ...buildIncomeScheduleEvents(incomeSchedules, { from, to }),
-    ...buildReminderEvents(reminders, { from, to }),
-    ...buildRecurringChargeEvents(recurringCharges, { from, to }),
-    ...buildInstallmentEvents(installments, { from, to }),
-    ...buildCreditCardPaymentEvents(creditCards, { from, to }),
-    ...buildDebtPaymentEvents(debts, { from, to }),
+    ...buildCalendarSource('ingresos programados', () => buildIncomeScheduleEvents(incomeSchedules, { from, to })),
+    ...buildCalendarSource('recordatorios', () => buildReminderEvents(reminders, { from, to })),
+    ...buildCalendarSource('recurrentes', () => buildRecurringChargeEvents(recurringCharges, { from, to })),
+    ...buildCalendarSource('MSI', () => buildInstallmentEvents(installments, { from, to })),
+    ...buildCalendarSource('pagos de tarjeta', () => buildCreditCardPaymentEvents(creditCards, { from, to })),
+    ...buildCalendarSource('deudas', () => buildDebtPaymentEvents(debts, { from, to })),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   return markPossibleDuplicateReminders(events)

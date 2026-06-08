@@ -16,6 +16,11 @@ type Reminder = {
     related_entity_type: string | null
 }
 
+function isReminderStatusConstraintError(error: { code?: string; message?: string } | null) {
+    const message = error?.message?.toLowerCase() || ''
+    return error?.code === '23514' || message.includes('check constraint') || message.includes('violates')
+}
+
 export default function RecordatoriosPage() {
     const supabase = createClient()
 
@@ -92,10 +97,19 @@ export default function RecordatoriosPage() {
 
     const setReminderStatus = async (reminder: Reminder, status: 'pending' | 'completed' | 'skipped') => {
         setLoadingAction(true)
-        const { error } = await supabase
+        let { error } = await supabase
           .from('reminders')
           .update({ status })
           .eq('id', reminder.id)
+
+        if (error && status === 'skipped' && isReminderStatusConstraintError(error)) {
+            const retry = await supabase
+              .from('reminders')
+              .update({ status: 'completed' })
+              .eq('id', reminder.id)
+
+            error = retry.error
+        }
 
         if (error) setMessage(error.message)
         else void loadReminders()
