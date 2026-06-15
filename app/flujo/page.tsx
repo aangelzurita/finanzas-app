@@ -22,6 +22,7 @@ import {
 } from '@/lib/financial-calendar'
 import { type CreditCardInstallment } from '@/lib/credit-card-installments'
 import { type RecurringCharge } from '@/lib/recurring-charges'
+import { getAppDate } from '@/lib/app-date'
 import { createClient } from '@/lib/supabase-browser'
 import { formatDate, formatMoney } from '@/lib/utils'
 import {
@@ -118,8 +119,8 @@ function addDays(value: Date, days: number) {
   return next
 }
 
-function endDateForHorizon(horizon: Horizon) {
-  const today = new Date()
+function endDateForHorizon(horizon: Horizon, referenceDate: Date) {
+  const today = referenceDate
   if (horizon === '15d') return addDays(today, 15)
   if (horizon === '60d') return addDays(today, 60)
   return getEndOfCurrentMonth(today)
@@ -150,6 +151,7 @@ export default function FlujoPage() {
   })
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
   const [purchaseAdvisorResult, setPurchaseAdvisorResult] = useState<SmartPurchaseAdvisorResult | null>(null)
+  const appDate = useMemo(() => getAppDate(), [])
 
   const loadData = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -228,7 +230,7 @@ export default function FlujoPage() {
     })
   }, [accounts, debts])
 
-  const endDate = useMemo(() => endDateForHorizon(horizon), [horizon])
+  const endDate = useMemo(() => endDateForHorizon(horizon, appDate), [horizon, appDate])
 
   const events = useMemo(
     () =>
@@ -239,10 +241,10 @@ export default function FlujoPage() {
         installments,
         creditCards: cards,
         debts: debtsWithPaymentContext,
-        from: new Date(),
+        from: appDate,
         to: endDate,
       }),
-    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, endDate]
+    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate, endDate]
   )
 
   const projection = useMemo(
@@ -250,10 +252,10 @@ export default function FlujoPage() {
       buildCashflowProjection({
         currentBalance,
         events,
-        startDate: new Date(),
+        startDate: appDate,
         endDate,
       }),
-    [currentBalance, events, endDate]
+    [currentBalance, events, appDate, endDate]
   )
 
   const handleSimulationChange = (
@@ -274,7 +276,7 @@ export default function FlujoPage() {
     const result = simulateCashflowDecision({
       currentBalance,
       baseEvents: events,
-      projectionStartDate: new Date(),
+      projectionStartDate: appDate,
       projectionEndDate: endDate,
       simulation: {
         amount: Number(simulationForm.amount),
@@ -305,7 +307,7 @@ export default function FlujoPage() {
         })),
         currentBalance,
         baseEvents: events,
-        projectionStartDate: new Date(),
+        projectionStartDate: appDate,
         projectionEndDate: endDate,
       })
       setPurchaseAdvisorResult(advisor)

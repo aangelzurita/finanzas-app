@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { getAppDate } from '@/lib/app-date'
 import {
   formatMoney,
   formatDate,
@@ -106,6 +107,7 @@ export default function Home() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey)
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
   const [selectedCardId, setSelectedCardId] = useState('all')
+  const appDate = useMemo(() => getAppDate(), [])
 
   const loadDashboard = useCallback(async () => {
     setLoadError('')
@@ -335,7 +337,7 @@ export default function Home() {
     [metrics.disponible, metrics.fixedExpense, metrics.monthInstallments, pendingReminderAmount, pendingCardPaymentAmount]
   )
 
-  const projectionEndDate = useMemo(() => getEndOfCurrentMonth(new Date()), [])
+  const projectionEndDate = useMemo(() => getEndOfCurrentMonth(appDate), [appDate])
 
   const financialEvents = useMemo(
     () =>
@@ -352,10 +354,10 @@ export default function Home() {
             payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
           }
         }),
-        from: new Date(),
+        from: appDate,
         to: projectionEndDate,
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, projectionEndDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, appDate, projectionEndDate]
   )
 
   const cashflowProjection = useMemo(
@@ -363,10 +365,10 @@ export default function Home() {
       buildCashflowProjection({
         currentBalance: metrics.disponible,
         events: financialEvents,
-        startDate: new Date(),
+        startDate: appDate,
         endDate: projectionEndDate,
       }),
-    [metrics.disponible, financialEvents, projectionEndDate]
+    [metrics.disponible, financialEvents, appDate, projectionEndDate]
   )
 
   const projectedCashOutflows = useMemo(

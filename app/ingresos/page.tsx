@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { getAppDate } from '@/lib/app-date'
 import {
   buildIncomeScheduleEvents,
   getNextIncomeScheduleDateAfter,
@@ -89,7 +90,7 @@ function parseDateOnly(value: string) {
 }
 
 function todayDateOnly() {
-  const now = new Date()
+  const now = getAppDate()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
 }
 
@@ -126,6 +127,8 @@ export default function IngresosPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<IncomeForm>(emptyForm)
+  const [markingReceivedId, setMarkingReceivedId] = useState<string | null>(null)
+  const appDate = useMemo(() => getAppDate(), [])
 
   const loadData = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -192,19 +195,19 @@ export default function IngresosPage() {
   const futureEvents = useMemo(
     () =>
       buildIncomeScheduleEvents(schedules, {
-        from: new Date(),
-        to: addDays(new Date(), 60),
+        from: appDate,
+        to: addDays(appDate, 60),
         maxEventsPerSchedule: 10,
       }),
-    [schedules]
+    [schedules, appDate]
   )
 
   const nextThirtyDaysAmount = useMemo(() => {
-    const limit = addDays(new Date(), 30)
+    const limit = addDays(appDate, 30)
     return futureEvents
       .filter((event) => new Date(`${event.date}T12:00:00`) <= limit)
       .reduce((acc, event) => acc + Number(event.amount || 0), 0)
-  }, [futureEvents])
+  }, [futureEvents, appDate])
 
   const activeCount = schedules.filter((schedule) => schedule.is_active).length
   const nextEvent = futureEvents[0]
@@ -319,26 +322,31 @@ export default function IngresosPage() {
   }
 
   const handleMarkReceived = async (schedule: IncomeSchedule) => {
+    setMarkingReceivedId(schedule.id)
     setMessage('')
-    const nextDate = getNextIncomeScheduleDateAfter(schedule, new Date())
+    const nextDate = getNextIncomeScheduleDateAfter(schedule, appDate)
     const payload = nextDate
       ? { next_income_date: nextDate, is_active: true }
       : { is_active: false }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('income_schedules')
       .update(payload)
       .eq('id', schedule.id)
+      .select('*')
+      .single()
 
     if (error) {
       setMessage(error.message)
+      setMarkingReceivedId(null)
       return
     }
 
+    const updatedSchedule = data as IncomeSchedule
     setSchedules((prev) =>
       prev.map((item) =>
         item.id === schedule.id
-          ? { ...item, ...payload }
+          ? updatedSchedule
           : item
       )
     )
@@ -347,6 +355,7 @@ export default function IngresosPage() {
         ? `Ingreso "${schedule.name}" marcado como recibido. Próxima fecha: ${formatDate(nextDate)}.`
         : `Ingreso "${schedule.name}" marcado como recibido y desactivado.`
     )
+    setMarkingReceivedId(null)
   }
 
   const handleDelete = async (schedule: IncomeSchedule) => {
@@ -711,10 +720,11 @@ export default function IngresosPage() {
                               <button
                                 type="button"
                                 onClick={() => void handleMarkReceived(schedule)}
-                                className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
+                                disabled={markingReceivedId === schedule.id}
+                                className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-600 hover:text-white disabled:cursor-wait disabled:opacity-60"
                                 title="No crea movimientos reales; solo avanza la próxima fecha esperada."
                               >
-                                RECIBIDO
+                                {markingReceivedId === schedule.id ? 'AVANZANDO...' : 'RECIBIDO'}
                               </button>
                             )}
                             <button
