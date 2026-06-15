@@ -8,6 +8,13 @@ import { CardForm } from '@/components/cards/CardForm'
 import { syncCardReminders } from '@/lib/card-reminders'
 import { validateCard, parseCardData } from '@/lib/card-utils'
 
+type CardBalanceTransaction = {
+  amount: number | string | null
+  transaction_type: string | null
+  affects_balance: boolean | null
+  status: string | null
+}
+
 export default function EditarTarjetaPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -45,6 +52,46 @@ export default function EditarTarjetaPage() {
     setMessage(text)
     setMessageType('error')
     setSaving(false)
+  }
+
+  const loadAffectingCardTransactions = async () => {
+    const pageSize = 1000
+    let from = 0
+    let rows: CardBalanceTransaction[] = []
+
+    while (true) {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('amount, transaction_type, affects_balance, status')
+        .eq('related_credit_card_id', cardId)
+        .range(from, from + pageSize - 1)
+
+      if (error) throw new Error(error.message)
+
+      const page = (data as CardBalanceTransaction[] | null) ?? []
+      rows = rows.concat(page)
+
+      if (page.length < pageSize) break
+      from += pageSize
+    }
+
+    return rows.filter((tx) => (tx.status || 'completed') === 'completed' && tx.affects_balance !== false)
+  }
+
+  const calculateInitialBalanceForRealCardBalance = async (realCurrentBalance: number) => {
+    const transactions = await loadAffectingCardTransactions()
+
+    const movementNet = transactions.reduce((acc, tx) => {
+      const amount = Number(tx.amount || 0)
+
+      if (tx.transaction_type === 'credit_card_purchase') return acc + amount
+      if (tx.transaction_type === 'credit_card_payment') return acc - amount
+      if (tx.transaction_type === 'credit_card_refund') return acc - amount
+
+      return acc
+    }, 0)
+
+    return Number((realCurrentBalance - movementNet).toFixed(2))
   }
 
   const initialize = async () => {
@@ -111,14 +158,25 @@ export default function EditarTarjetaPage() {
     if (!userId) return fail('No hay sesión activa.')
 
     const parsedData = parseCardData(formValues)
+    const realCurrentBalance = Number(parsedData.current_balance || 0)
+    if (!Number.isFinite(realCurrentBalance)) return fail('Ingresa un saldo válido.')
+
+    let adjustedInitialBalance = realCurrentBalance
+
+    try {
+      adjustedInitialBalance = await calculateInitialBalanceForRealCardBalance(realCurrentBalance)
+    } catch (error) {
+      fail(error instanceof Error ? error.message : 'No se pudo calcular el saldo base de la tarjeta.')
+      return
+    }
 
     const { error: accountError } = await supabase
       .from('accounts')
       .update({
         name: parsedData.name,
         institution: parsedData.bank,
-        initial_balance: parsedData.current_balance,
-        current_balance: parsedData.current_balance,
+        initial_balance: adjustedInitialBalance,
+        current_balance: realCurrentBalance,
       })
       .eq('id', accountId)
 
@@ -127,15 +185,26 @@ export default function EditarTarjetaPage() {
       return
     }
 
+    const cardPayload = {
+      ...parsedData,
+      current_balance: realCurrentBalance,
+    }
+
     const { data: cardData, error: cardError } = await supabase
       .from('credit_cards')
-      .update(parsedData)
+      .update(cardPayload)
       .eq('id', cardId)
       .select('id, name, statement_cutoff_day, payment_due_day')
       .single()
 
     if (cardError || !cardData) {
       fail(`Error al actualizar tarjeta: ${cardError?.message || 'No se pudo actualizar la tarjeta'}`)
+      return
+    }
+
+    const { error: recalculationError } = await supabase.rpc('recalculate_credit_card_balance', { p_credit_card_id: cardId })
+    if (recalculationError) {
+      fail(`La tarjeta se guardó, pero no se pudo recalcular el saldo: ${recalculationError.message}`)
       return
     }
 

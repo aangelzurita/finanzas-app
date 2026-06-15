@@ -28,6 +28,7 @@ type CreditCard = {
   credit_limit: number
   current_balance: number
   initial_balance: number
+  mirror_current_balance: number
   minimum_payment: number
   no_interest_payment: number
 }
@@ -121,10 +122,11 @@ export default function TarjetaDetallePage() {
     }
 
     let initialBalance = 0
+    let mirrorCurrentBalance = Number(cardData?.current_balance || 0)
     if (cardData?.account_id) {
       const { data: accountData, error: accountError } = await supabase
         .from('accounts')
-        .select('initial_balance')
+        .select('initial_balance, current_balance')
         .eq('id', cardData.account_id)
         .single()
 
@@ -132,6 +134,7 @@ export default function TarjetaDetallePage() {
         setMessage(accountError.message)
       } else {
         initialBalance = Number(accountData?.initial_balance || 0)
+        mirrorCurrentBalance = Number(accountData?.current_balance ?? cardData.current_balance ?? 0)
       }
     }
 
@@ -140,7 +143,11 @@ export default function TarjetaDetallePage() {
       ((installmentData as InstallmentPlan[]) ?? []),
     ).catch(() => ((installmentData as InstallmentPlan[]) ?? []))
 
-    setCard(cardData ? ({ ...(cardData as Omit<CreditCard, 'initial_balance'>), initial_balance: initialBalance }) : null)
+    setCard(cardData ? ({
+      ...(cardData as Omit<CreditCard, 'initial_balance' | 'mirror_current_balance'>),
+      initial_balance: initialBalance,
+      mirror_current_balance: mirrorCurrentBalance,
+    }) : null)
     setTransactions((txData as Transaction[]) ?? [])
     setInstallments(syncedInstallments)
     setLoading(false)
@@ -183,6 +190,13 @@ export default function TarjetaDetallePage() {
       installments,
     })
   }, [card, transactions, installments])
+
+  const internalBalanceDifference = useMemo(() => {
+    if (!card) return 0
+    return Number((Number(card.current_balance || 0) - Number(card.mirror_current_balance || 0)).toFixed(2))
+  }, [card])
+
+  const hasInternalBalanceMismatch = Math.abs(internalBalanceDifference) > 0.01
 
   const activeInstallments = useMemo(
     () => installments.filter((plan) => plan.status === 'active' && getOutstandingInstallmentCount(plan) > 0),
@@ -345,15 +359,15 @@ export default function TarjetaDetallePage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-xl font-black text-slate-900">Conciliación de tarjeta</h2>
                   <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-widest ${
-                    reconciliation.status === 'OK'
+                    reconciliation.status === 'OK' && !hasInternalBalanceMismatch
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                       : 'bg-amber-50 text-amber-700 border border-amber-100'
                   }`}>
-                    {reconciliation.status}
+                    {hasInternalBalanceMismatch ? 'REVISAR' : reconciliation.status}
                   </span>
                 </div>
                 <p className="mt-2 max-w-3xl text-sm font-medium text-slate-500">
-                  Esta conciliación suma el saldo histórico inicial de la cuenta espejo y los movimientos registrados contra el saldo actual de la tarjeta. Es una estimación y puede variar si existen ajustes históricos o movimientos no registrados.
+                  Esta conciliación compara el saldo guardado de la tarjeta, la cuenta espejo y los movimientos registrados. Es una estimación y puede variar si existen ajustes históricos o movimientos no registrados.
                 </p>
               </div>
             </div>
@@ -361,7 +375,7 @@ export default function TarjetaDetallePage() {
             <div className="mt-6 grid gap-4 md:grid-cols-4">
               <MiniStat label="Saldo histórico inicial" value={formatMoney(reconciliation.initialBalance)} />
               <MiniStat label="Movimientos registrados" value={formatMoney(reconciliation.movementNet)} />
-              <MiniStat label="Saldo registrado" value={formatMoney(reconciliation.registeredBalance)} />
+              <MiniStat label="Saldo tarjeta" value={formatMoney(reconciliation.registeredBalance)} />
               <MiniStat label="Saldo esperado" value={formatMoney(reconciliation.expectedBalance)} />
             </div>
 
@@ -369,10 +383,25 @@ export default function TarjetaDetallePage() {
               <MiniStat
                 label="Diferencia"
                 value={formatMoney(reconciliation.difference)}
-                valueClassName={reconciliation.status === 'OK' ? 'text-emerald-600 font-black' : 'text-amber-600 font-black'}
+                valueClassName={reconciliation.status === 'OK' && !hasInternalBalanceMismatch ? 'text-emerald-600 font-black' : 'text-amber-600 font-black'}
+              />
+              <MiniStat label="Cuenta espejo" value={formatMoney(Number(card.mirror_current_balance || 0))} />
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <MiniStat
+                label="Diferencia interna tarjeta/espejo"
+                value={formatMoney(internalBalanceDifference)}
+                valueClassName={hasInternalBalanceMismatch ? 'text-amber-600 font-black' : 'text-emerald-600 font-black'}
               />
               <MiniStat label="Sin impacto" value={String(reconciliation.excludedTransactions)} />
             </div>
+
+            {hasInternalBalanceMismatch && (
+              <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                El saldo de la tarjeta y su cuenta espejo no coinciden. Recalcula la tarjeta o edita el saldo real desde la tarjeta para sincronizarlos.
+              </div>
+            )}
 
             <div className="mt-4 grid gap-3 md:grid-cols-4">
               <div className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">

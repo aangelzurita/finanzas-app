@@ -121,7 +121,7 @@ export function CardForm({
                             </div>
                         </FormField>
 
-                        <FormField label="Saldo actual de la tarjeta" helper="Puede ser negativo si tienes saldo a favor por reembolsos o sobrepagos">
+                        <FormField label="Saldo real usado de la tarjeta" helper="Usa el saldo usado que ves en tu banco. La app ajustará la base histórica de la tarjeta para que los próximos movimientos no descuadren el saldo. Puede ser negativo si tienes saldo a favor.">
                             <div className="relative">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
                                 <input

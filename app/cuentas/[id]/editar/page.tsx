@@ -19,6 +19,10 @@ type AccountTransaction = {
     status: string | null
 }
 
+type CreditCardRow = {
+    id: string
+}
+
 const INFLOW_TYPES = new Set(['income', 'transfer'])
 const OUTFLOW_TYPES = new Set(['expense', 'transfer', 'credit_card_payment', 'debt_payment'])
 
@@ -121,6 +125,53 @@ export default function EditarCuentaPage() {
         return realCurrentBalance - totals.inflows + totals.outflows
     }
 
+    const loadCreditCardForAccount = async () => {
+        const { data, error } = await supabase
+            .from('credit_cards')
+            .select('id')
+            .eq('account_id', accountId)
+            .maybeSingle()
+
+        if (error) throw new Error(error.message)
+        return data as CreditCardRow | null
+    }
+
+    const calculateCreditCardInitialBalance = async (creditCardId: string, realCurrentBalance: number) => {
+        const pageSize = 1000
+        let from = 0
+        let transactions: AccountTransaction[] = []
+
+        while (true) {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('amount, transaction_type, source_account_id, destination_account_id, affects_balance, status')
+                .eq('related_credit_card_id', creditCardId)
+                .range(from, from + pageSize - 1)
+
+            if (error) throw new Error(error.message)
+
+            const rows = (data as AccountTransaction[] | null) ?? []
+            transactions = transactions.concat(rows)
+
+            if (rows.length < pageSize) break
+            from += pageSize
+        }
+
+        const movementNet = transactions
+            .filter((tx) => (tx.status || 'completed') === 'completed' && tx.affects_balance !== false)
+            .reduce((acc, tx) => {
+                const amount = Number(tx.amount || 0)
+
+                if (tx.transaction_type === 'credit_card_purchase') return acc + amount
+                if (tx.transaction_type === 'credit_card_payment') return acc - amount
+                if (tx.transaction_type === 'credit_card_refund') return acc - amount
+
+                return acc
+            }, 0)
+
+        return Number((realCurrentBalance - movementNet).toFixed(2))
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setSaving(true)
@@ -134,9 +185,18 @@ export default function EditarCuentaPage() {
         if (!Number.isFinite(realCurrentBalance)) return fail('Ingresa un saldo válido.')
 
         let adjustedInitialBalance = realCurrentBalance
+        let linkedCreditCardId: string | null = null
 
         try {
-            adjustedInitialBalance = await calculateInitialBalanceForRealBalance(realCurrentBalance)
+            if (accountType === 'credit_card') {
+                const linkedCard = await loadCreditCardForAccount()
+                linkedCreditCardId = linkedCard?.id || null
+                adjustedInitialBalance = linkedCreditCardId
+                    ? await calculateCreditCardInitialBalance(linkedCreditCardId, realCurrentBalance)
+                    : realCurrentBalance
+            } else {
+                adjustedInitialBalance = await calculateInitialBalanceForRealBalance(realCurrentBalance)
+            }
         } catch (error) {
             fail(error instanceof Error ? error.message : 'No se pudo calcular el saldo base de la cuenta.')
             return
@@ -169,7 +229,14 @@ export default function EditarCuentaPage() {
             return
         }
 
-        await supabase.rpc('recalculate_account_balance', { p_account_id: accountId })
+        const { error: recalculationError } = linkedCreditCardId
+            ? await supabase.rpc('recalculate_credit_card_balance', { p_credit_card_id: linkedCreditCardId })
+            : await supabase.rpc('recalculate_account_balance', { p_account_id: accountId })
+
+        if (recalculationError) {
+            fail(`La cuenta se guardó, pero no se pudo recalcular el saldo: ${recalculationError.message}`)
+            return
+        }
 
         setMessage('Cuenta actualizada correctamente.')
         setMessageType('success')
