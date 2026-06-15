@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
 import {
   buildIncomeScheduleEvents,
+  getNextIncomeScheduleDateAfter,
   type IncomeSchedule,
   type IncomeScheduleConfidence,
   type IncomeScheduleFrequency,
@@ -81,6 +82,19 @@ function addDays(value: Date, days: number) {
   const next = new Date(value)
   next.setDate(next.getDate() + days)
   return next
+}
+
+function parseDateOnly(value: string) {
+  return new Date(`${value}T12:00:00`)
+}
+
+function todayDateOnly() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
+function isPastIncomeDate(value: string) {
+  return parseDateOnly(value) < todayDateOnly()
 }
 
 function toForm(schedule: IncomeSchedule): IncomeForm {
@@ -301,6 +315,37 @@ export default function IngresosPage() {
       prev.map((item) =>
         item.id === schedule.id ? { ...item, is_active: !item.is_active } : item
       )
+    )
+  }
+
+  const handleMarkReceived = async (schedule: IncomeSchedule) => {
+    setMessage('')
+    const nextDate = getNextIncomeScheduleDateAfter(schedule, new Date())
+    const payload = nextDate
+      ? { next_income_date: nextDate, is_active: true }
+      : { is_active: false }
+
+    const { error } = await supabase
+      .from('income_schedules')
+      .update(payload)
+      .eq('id', schedule.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setSchedules((prev) =>
+      prev.map((item) =>
+        item.id === schedule.id
+          ? { ...item, ...payload }
+          : item
+      )
+    )
+    setMessage(
+      nextDate
+        ? `Ingreso "${schedule.name}" marcado como recibido. Próxima fecha: ${formatDate(nextDate)}.`
+        : `Ingreso "${schedule.name}" marcado como recibido y desactivado.`
     )
   }
 
@@ -630,7 +675,14 @@ export default function IngresosPage() {
                           </span>
                         </td>
                         <td className="px-8 py-5 text-sm font-bold text-slate-700">
-                          {formatDate(schedule.next_income_date)}
+                          <div className="flex flex-col gap-2">
+                            <span>{formatDate(schedule.next_income_date)}</span>
+                            {schedule.is_active && isPastIncomeDate(schedule.next_income_date) && (
+                              <span className="w-fit rounded-full bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                                Fecha pasada
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-8 py-5">
                           <p className="text-sm font-bold text-slate-700">
@@ -654,7 +706,17 @@ export default function IngresosPage() {
                           </button>
                         </td>
                         <td className="px-8 py-5">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {schedule.is_active && (
+                              <button
+                                type="button"
+                                onClick={() => void handleMarkReceived(schedule)}
+                                className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-600 hover:text-white"
+                                title="No crea movimientos reales; solo avanza la próxima fecha esperada."
+                              >
+                                RECIBIDO
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleEdit(schedule)}

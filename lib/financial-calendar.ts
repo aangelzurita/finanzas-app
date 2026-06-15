@@ -191,6 +191,24 @@ function nextIncomeDate(schedule: IncomeSchedule, current: Date) {
   return addDays(current, 1)
 }
 
+export function getNextIncomeScheduleDateAfter(
+  schedule: IncomeSchedule,
+  referenceDate: string | Date = new Date()
+) {
+  if (schedule.frequency === 'one_time') return null
+
+  const reference = parseDateOnly(referenceDate)
+  let cursor = parseDateOnly(schedule.next_income_date)
+  let guard = 0
+
+  while (cursor <= reference && guard < 48) {
+    cursor = nextIncomeDate(schedule, cursor)
+    guard += 1
+  }
+
+  return formatDateOnly(cursor)
+}
+
 function nextRecurringDate(
   frequency: RecurringCharge['frequency'],
   chargeDay: number | null | undefined,

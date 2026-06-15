@@ -433,9 +433,9 @@ export default function Home() {
       financialEvents
         .filter((event) => event.affectsCash)
         .sort((a, b) => {
-          const amountDiff = Number(b.amount || 0) - Number(a.amount || 0)
-          if (amountDiff !== 0) return amountDiff
-          return new Date(a.date).getTime() - new Date(b.date).getTime()
+          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime()
+          if (dateDiff !== 0) return dateDiff
+          return Number(b.amount || 0) - Number(a.amount || 0)
         })
         .slice(0, 5),
     [financialEvents]
@@ -624,6 +624,22 @@ export default function Home() {
     slate: 'bg-slate-100 text-slate-600',
   }
 
+  const healthRiskExplanation = useMemo(() => {
+    if (cashflowProjection.summary.currentBalance < 0) {
+      return `Riesgo porque tu saldo actual en cuentas está en ${formatMoney(cashflowProjection.summary.currentBalance)}.`
+    }
+
+    if (cashflowProjection.summary.lowestBalance < 0) {
+      return `Riesgo porque tu saldo proyectado baja a ${formatMoney(cashflowProjection.summary.lowestBalance)} el ${formatDate(cashflowProjection.summary.lowestBalanceDate)}.`
+    }
+
+    if (cashflowProjection.summary.riskLevel === 'caution') {
+      return `Precaución porque tu margen más bajo es ${formatMoney(cashflowProjection.summary.lowestBalance)}.`
+    }
+
+    return `Estable: tu saldo proyectado se mantiene arriba de ${formatMoney(cashflowProjection.summary.lowestBalance)}.`
+  }, [cashflowProjection.summary])
+
   const logout = async () => {
     await supabase.auth.signOut()
     window.location.reload()
@@ -688,6 +704,7 @@ export default function Home() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">Lectura rápida</p>
                 <p className="mt-2 text-2xl font-black tracking-tight">Tu resumen ejecutivo para decidir antes de gastar</p>
+                <p className="mt-2 text-sm font-bold text-slate-300">{healthRiskExplanation}</p>
               </div>
               <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
                 {nextIncomeHealth.status}
@@ -714,6 +731,9 @@ export default function Home() {
                   {cashflowProjection.summary.nextIncomeDate ? `Próximo ingreso: ${formatDate(cashflowProjection.summary.nextIncomeDate)}` : 'Sin ingreso esperado'}
                 </p>
                 <p className="mt-4 text-sm font-black text-slate-700">{nextIncomeHealth.text}</p>
+                <p className="mt-2 rounded-2xl bg-white/70 px-3 py-2 text-xs font-bold text-slate-500">
+                  Si ese ingreso ya cayó y registraste el movimiento, márcalo como recibido en Ingresos para avanzar la próxima fecha.
+                </p>
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
                     <span>Margen</span>
@@ -923,7 +943,17 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-5">
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Próximos eventos que afectan el flujo</h3>
+                <p className="text-sm font-semibold text-slate-500">Ordenados por fecha. Para ver el saldo después de cada día, entra al detalle.</p>
+              </div>
+              <Link href="/flujo" className="text-sm font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
+                Ver detalle
+              </Link>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-5">
               {topCashflowEvents.map((event) => (
                 <div key={event.id} className="rounded-2xl border border-slate-100 bg-white p-4">
                   <div className="flex items-start justify-between gap-3">
