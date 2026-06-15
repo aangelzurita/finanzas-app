@@ -10,6 +10,18 @@ function isMissingExternalAccountColumn(error: { code?: string; message?: string
     return error?.code === 'PGRST204' || (message.includes('is_external') || message.includes('include_in_balance'))
 }
 
+type AccountTransaction = {
+    amount: number | string | null
+    transaction_type: string | null
+    source_account_id: string | null
+    destination_account_id: string | null
+    affects_balance: boolean | null
+    status: string | null
+}
+
+const INFLOW_TYPES = new Set(['income', 'transfer'])
+const OUTFLOW_TYPES = new Set(['expense', 'transfer', 'credit_card_payment', 'debt_payment'])
+
 export default function EditarCuentaPage() {
     const supabase = createClient()
     const router = useRouter()
@@ -61,6 +73,54 @@ export default function EditarCuentaPage() {
         setDeleting(false)
     }
 
+    const loadAffectingTransactions = async () => {
+        const pageSize = 1000
+        let from = 0
+        let allRows: AccountTransaction[] = []
+
+        while (true) {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('amount, transaction_type, source_account_id, destination_account_id, affects_balance, status')
+                .or(`source_account_id.eq.${accountId},destination_account_id.eq.${accountId}`)
+                .range(from, from + pageSize - 1)
+
+            if (error) throw new Error(error.message)
+
+            const rows = (data as AccountTransaction[] | null) ?? []
+            allRows = allRows.concat(rows)
+
+            if (rows.length < pageSize) break
+            from += pageSize
+        }
+
+        return allRows.filter((tx) => (tx.status || 'completed') === 'completed' && tx.affects_balance !== false)
+    }
+
+    const calculateInitialBalanceForRealBalance = async (realCurrentBalance: number) => {
+        const transactions = await loadAffectingTransactions()
+
+        const totals = transactions.reduce(
+            (acc, tx) => {
+                const amount = Number(tx.amount || 0)
+                const type = tx.transaction_type || ''
+
+                if (tx.destination_account_id === accountId && INFLOW_TYPES.has(type)) {
+                    acc.inflows += amount
+                }
+
+                if (tx.source_account_id === accountId && OUTFLOW_TYPES.has(type)) {
+                    acc.outflows += amount
+                }
+
+                return acc
+            },
+            { inflows: 0, outflows: 0 }
+        )
+
+        return realCurrentBalance - totals.inflows + totals.outflows
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setSaving(true)
@@ -70,12 +130,24 @@ export default function EditarCuentaPage() {
         if (!name.trim()) return fail('Ingresa el nombre de la cuenta.')
         if (currentBalance === '') return fail('Ingresa el saldo.')
 
+        const realCurrentBalance = Number(currentBalance)
+        if (!Number.isFinite(realCurrentBalance)) return fail('Ingresa un saldo válido.')
+
+        let adjustedInitialBalance = realCurrentBalance
+
+        try {
+            adjustedInitialBalance = await calculateInitialBalanceForRealBalance(realCurrentBalance)
+        } catch (error) {
+            fail(error instanceof Error ? error.message : 'No se pudo calcular el saldo base de la cuenta.')
+            return
+        }
+
         const payload: Record<string, unknown> = {
             name: name.trim(),
             institution: institution.trim() || null,
             account_type: accountType,
-            initial_balance: Number(currentBalance),
-            current_balance: Number(currentBalance),
+            initial_balance: adjustedInitialBalance,
+            current_balance: realCurrentBalance,
             is_external: isExternal,
             include_in_balance: !isExternal,
         }
@@ -96,6 +168,8 @@ export default function EditarCuentaPage() {
             fail(error.message)
             return
         }
+
+        await supabase.rpc('recalculate_account_balance', { p_account_id: accountId })
 
         setMessage('Cuenta actualizada correctamente.')
         setMessageType('success')
@@ -221,7 +295,7 @@ export default function EditarCuentaPage() {
                                     </select>
                                 </Field>
 
-                                <Field label="Saldo Actual">
+                                <Field label="Saldo real actual">
                                     <div className="relative">
                                         <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                                         <input
@@ -233,6 +307,9 @@ export default function EditarCuentaPage() {
                                             onChange={(e) => setCurrentBalance(e.target.value)}
                                         />
                                     </div>
+                                    <p className="text-xs font-bold text-slate-400">
+                                        Usa el saldo real que ves en tu banco. La app ajustará la base de la cuenta para que los próximos movimientos no descuadren el saldo.
+                                    </p>
                                 </Field>
                             </div>
 

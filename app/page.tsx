@@ -30,6 +30,7 @@ import { Panel } from '@/components/ui/Panel'
 import { QuickNav } from '@/components/ui/QuickNav'
 import {
   getPendingInstallmentAmount,
+  getInstallmentChargeDate,
   getInstallmentDisplayState,
   syncInstallmentPlans,
   type CreditCardInstallment,
@@ -333,8 +334,8 @@ export default function Home() {
   )
 
   const availableAfterPending = useMemo(
-    () => metrics.disponible - metrics.fixedExpense - metrics.monthInstallments - pendingReminderAmount - pendingCardPaymentAmount,
-    [metrics.disponible, metrics.fixedExpense, metrics.monthInstallments, pendingReminderAmount, pendingCardPaymentAmount]
+    () => metrics.disponible - metrics.fixedExpense - pendingReminderAmount - pendingCardPaymentAmount,
+    [metrics.disponible, metrics.fixedExpense, pendingReminderAmount, pendingCardPaymentAmount]
   )
 
   const projectionEndDate = useMemo(() => getEndOfCurrentMonth(appDate), [appDate])
@@ -465,12 +466,50 @@ export default function Home() {
     () =>
       buildConsolidatedCommitments(
         reminders,
-        monthInstallmentPlans,
-        dueRecurringCharges,
+        [],
+        dueRecurringCharges.filter((charge) => charge.payment_method_type !== 'credit_card'),
         upcomingCardPayments,
         getPendingRecurringAmount
       ),
     [reminders, monthInstallmentPlans, dueRecurringCharges, upcomingCardPayments]
+  )
+
+  const todayStart = useMemo(
+    () => new Date(appDate.getFullYear(), appDate.getMonth(), appDate.getDate()),
+    [appDate]
+  )
+
+  const commitmentGroups = useMemo(() => {
+    const dated = consolidatedCommitments.map((item) => ({
+      ...item,
+      isOverdue: new Date(item.dueDate) < todayStart,
+    }))
+
+    return {
+      overdue: dated.filter((item) => item.isOverdue),
+      upcoming: dated.filter((item) => !item.isOverdue),
+    }
+  }, [consolidatedCommitments, todayStart])
+
+  const cardInstallmentBreakdown = useMemo(
+    () =>
+      monthInstallmentPlans
+        .map((plan) => {
+          const displayState = getInstallmentDisplayState(plan)
+          const chargeDate = getInstallmentChargeDate(plan, displayState.currentInstallmentNumber)
+
+          return {
+            id: plan.id,
+            title: plan.description,
+            dueDate: chargeDate.toISOString(),
+            amount: Number(plan.monthly_amount || 0),
+            meta: `MSI ${displayState.currentInstallmentNumber}/${plan.total_months}`,
+            isOverdue: chargeDate < todayStart,
+          }
+        })
+        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+        .slice(0, 5),
+    [monthInstallmentPlans, todayStart]
   )
 
   const budgetHighlights = useMemo(
@@ -1020,26 +1059,61 @@ export default function Home() {
           </div>
           <div className="grid gap-6 lg:grid-cols-12">
             <div className="lg:col-span-5">
-              <Panel title="Compromisos próximos" subtitle="Vista consolidada de vencimientos, pagos y cargos pendientes">
-            {consolidatedCommitments.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay compromisos próximos registrados.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {consolidatedCommitments.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-4">
-                    <div>
-                      <p className="font-bold text-slate-900">{item.title}</p>
-                      <p className="text-sm text-slate-500">
-                        {formatDate(item.dueDate)} · {item.meta}
-                      </p>
-                    </div>
-                    <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
+              <Panel title="Pagos próximos en efectivo" subtitle="Vencimientos que sí pueden bajar tu dinero disponible">
+                {consolidatedCommitments.length === 0 ? (
+                  <div className="py-10 text-center text-slate-400 font-medium italic">
+                    No hay pagos próximos registrados.
                   </div>
-                ))}
-              </div>
-            )}
+                ) : (
+                  <div className="space-y-5">
+                    {commitmentGroups.overdue.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-xs font-black uppercase tracking-widest text-rose-600">Vencidos</p>
+                          <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                            Revisar
+                          </span>
+                        </div>
+                        <div className="divide-y divide-rose-100 rounded-2xl border border-rose-100 bg-rose-50/40 px-4">
+                          {commitmentGroups.overdue.map((item) => (
+                            <div key={item.id} className="flex items-center justify-between gap-4 py-3">
+                              <div>
+                                <p className="font-bold text-slate-900">{item.title}</p>
+                                <p className="text-sm text-slate-500">
+                                  Venció el {formatDate(item.dueDate)} · {item.meta}
+                                </p>
+                              </div>
+                              <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="mb-2 text-xs font-black uppercase tracking-widest text-slate-400">Próximos</p>
+                      {commitmentGroups.upcoming.length === 0 ? (
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-5 text-sm font-bold text-slate-500">
+                          No hay pagos futuros registrados en este bloque.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {commitmentGroups.upcoming.map((item) => (
+                            <div key={item.id} className="flex items-center justify-between gap-4 py-4">
+                              <div>
+                                <p className="font-bold text-slate-900">{item.title}</p>
+                                <p className="text-sm text-slate-500">
+                                  {formatDate(item.dueDate)} · {item.meta}
+                                </p>
+                              </div>
+                              <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </Panel>
             </div>
 
@@ -1095,7 +1169,32 @@ export default function Home() {
             </div>
 
             <div className="lg:col-span-3 space-y-6">
-              <KpiCard title="MSI comprometido este mes" value={formatMoney(metrics.monthInstallments)} valueClassName="text-sky-600" />
+              <Panel title="MSI en tarjetas" subtitle="Desglose informativo incluido en saldos TDC">
+                {cardInstallmentBreakdown.length === 0 ? (
+                  <div className="py-8 text-center text-slate-400 font-medium italic">
+                    No hay MSI pendientes este mes.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {cardInstallmentBreakdown.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-sky-100 bg-sky-50/40 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-900">{item.title}</p>
+                            <p className="text-xs font-bold text-slate-500">
+                              {item.isOverdue ? 'Ciclo vencido' : formatDate(item.dueDate)} · {item.meta}
+                            </p>
+                          </div>
+                          <p className="text-sm font-black text-sky-600">{formatMoney(item.amount)}</p>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
+                      Estos MSI explican parte del saldo de tus tarjetas; no son una salida adicional fuera del pago de tarjeta.
+                    </div>
+                  </div>
+                )}
+              </Panel>
               <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
               <KpiCard title="Pagos de deuda" value={formatMoney(metrics.debtPayments)} valueClassName="text-amber-600" subtitle="Salida real sin categoría de gasto" />
             </div>
