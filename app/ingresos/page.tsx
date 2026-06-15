@@ -6,7 +6,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { getAppDate } from '@/lib/app-date'
 import {
   buildIncomeScheduleEvents,
-  getNextIncomeScheduleDateAfter,
+  getNextIncomeScheduleOccurrenceDate,
   type IncomeSchedule,
   type IncomeScheduleConfidence,
   type IncomeScheduleFrequency,
@@ -324,32 +324,30 @@ export default function IngresosPage() {
   const handleMarkReceived = async (schedule: IncomeSchedule) => {
     setMarkingReceivedId(schedule.id)
     setMessage('')
-    const nextDate = getNextIncomeScheduleDateAfter(schedule, appDate)
+    const nextDate = getNextIncomeScheduleOccurrenceDate(schedule)
     const payload = nextDate
       ? { next_income_date: nextDate, is_active: true }
       : { is_active: false }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('income_schedules')
       .update(payload)
       .eq('id', schedule.id)
-      .select('*')
-      .single()
 
     if (error) {
-      setMessage(error.message)
+      setMessage(`No se pudo avanzar el ingreso: ${error.message}`)
       setMarkingReceivedId(null)
       return
     }
 
-    const updatedSchedule = data as IncomeSchedule
     setSchedules((prev) =>
       prev.map((item) =>
         item.id === schedule.id
-          ? updatedSchedule
+          ? { ...item, ...payload }
           : item
       )
     )
+    await loadData()
     setMessage(
       nextDate
         ? `Ingreso "${schedule.name}" marcado como recibido. Próxima fecha: ${formatDate(nextDate)}.`

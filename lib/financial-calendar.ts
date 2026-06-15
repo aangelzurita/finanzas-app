@@ -209,6 +209,11 @@ export function getNextIncomeScheduleDateAfter(
   return formatDateOnly(cursor)
 }
 
+export function getNextIncomeScheduleOccurrenceDate(schedule: IncomeSchedule) {
+  if (schedule.frequency === 'one_time') return null
+  return formatDateOnly(nextIncomeDate(schedule, parseDateOnly(schedule.next_income_date)))
+}
+
 function nextRecurringDate(
   frequency: RecurringCharge['frequency'],
   chargeDay: number | null | undefined,
