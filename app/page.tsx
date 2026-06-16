@@ -323,9 +323,54 @@ export default function Home() {
 
   const upcomingCardPayments = useMemo(() => buildUpcomingCardPayments(creditCards), [creditCards])
 
-  const pendingReminderAmount = useMemo(
-    () => reminders.reduce((acc, reminder) => acc + Number(reminder.amount || 0), 0),
+  const normalizedCardPaymentTitles = useMemo(
+    () =>
+      upcomingCardPayments.map((card) =>
+        card.name
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+      ),
+    [upcomingCardPayments]
+  )
+
+  const reminderLooksLikeCardPayment = useCallback(
+    (reminder: Reminder) => {
+      const title = reminder.title
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+      const cardNameFromReminder = title.replace(/^pago\s+/, '').trim()
+
+      return normalizedCardPaymentTitles.some((cardName) => {
+        if (!cardName || !cardNameFromReminder) return false
+        return title.includes(cardName) || cardName.includes(cardNameFromReminder)
+      })
+    },
+    [normalizedCardPaymentTitles]
+  )
+
+  const cashPaymentReminders = useMemo(
+    () =>
+      reminders.filter((reminder) => {
+        const amount = Number(reminder.amount || 0)
+        if (amount <= 0) return false
+        return !reminderLooksLikeCardPayment(reminder)
+      }),
+    [reminders, reminderLooksLikeCardPayment]
+  )
+
+  const informationalReminders = useMemo(
+    () =>
+      reminders
+        .filter((reminder) => Number(reminder.amount || 0) <= 0)
+        .slice(0, 4),
     [reminders]
+  )
+
+  const pendingReminderAmount = useMemo(
+    () => cashPaymentReminders.reduce((acc, reminder) => acc + Number(reminder.amount || 0), 0),
+    [cashPaymentReminders]
   )
 
   const pendingCardPaymentAmount = useMemo(
@@ -465,13 +510,13 @@ export default function Home() {
   const consolidatedCommitments = useMemo<CommitmentItem[]>(
     () =>
       buildConsolidatedCommitments(
-        reminders,
+        cashPaymentReminders,
         [],
         dueRecurringCharges.filter((charge) => charge.payment_method_type !== 'credit_card'),
         upcomingCardPayments,
         getPendingRecurringAmount
       ),
-    [reminders, monthInstallmentPlans, dueRecurringCharges, upcomingCardPayments]
+    [cashPaymentReminders, dueRecurringCharges, upcomingCardPayments]
   )
 
   const todayStart = useMemo(
@@ -1060,60 +1105,84 @@ export default function Home() {
           <div className="grid gap-6 lg:grid-cols-12">
             <div className="lg:col-span-5">
               <Panel title="Pagos próximos en efectivo" subtitle="Vencimientos que sí pueden bajar tu dinero disponible">
-                {consolidatedCommitments.length === 0 ? (
-                  <div className="py-10 text-center text-slate-400 font-medium italic">
-                    No hay pagos próximos registrados.
-                  </div>
-                ) : (
-                  <div className="space-y-5">
-                    {commitmentGroups.overdue.length > 0 && (
-                      <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-xs font-black uppercase tracking-widest text-rose-600">Vencidos</p>
-                          <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
-                            Revisar
-                          </span>
-                        </div>
-                        <div className="divide-y divide-rose-100 rounded-2xl border border-rose-100 bg-rose-50/40 px-4">
-                          {commitmentGroups.overdue.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-4 py-3">
-                              <div>
-                                <p className="font-bold text-slate-900">{item.title}</p>
-                                <p className="text-sm text-slate-500">
-                                  Venció el {formatDate(item.dueDate)} · {item.meta}
-                                </p>
+                <div className="space-y-5">
+                  {consolidatedCommitments.length === 0 ? (
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-5 text-sm font-bold text-emerald-700">
+                      No hay pagos con monto pendiente en este bloque.
+                    </div>
+                  ) : (
+                    <>
+                      {commitmentGroups.overdue.length > 0 && (
+                        <div>
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-black uppercase tracking-widest text-rose-600">Vencidos con monto</p>
+                            <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
+                              Revisar
+                            </span>
+                          </div>
+                          <div className="divide-y divide-rose-100 rounded-2xl border border-rose-100 bg-rose-50/40 px-4">
+                            {commitmentGroups.overdue.map((item) => (
+                              <div key={item.id} className="flex items-center justify-between gap-4 py-3">
+                                <div>
+                                  <p className="font-bold text-slate-900">{item.title}</p>
+                                  <p className="text-sm text-slate-500">
+                                    Venció el {formatDate(item.dueDate)} · {item.meta}
+                                  </p>
+                                </div>
+                                <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
                               </div>
-                              <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <p className="mb-2 text-xs font-black uppercase tracking-widest text-slate-400">Próximos</p>
-                      {commitmentGroups.upcoming.length === 0 ? (
-                        <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-5 text-sm font-bold text-slate-500">
-                          No hay pagos futuros registrados en este bloque.
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-slate-100">
-                          {commitmentGroups.upcoming.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-4 py-4">
-                              <div>
-                                <p className="font-bold text-slate-900">{item.title}</p>
-                                <p className="text-sm text-slate-500">
-                                  {formatDate(item.dueDate)} · {item.meta}
-                                </p>
-                              </div>
-                              <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
                       )}
+
+                      <div>
+                        <p className="mb-2 text-xs font-black uppercase tracking-widest text-slate-400">Próximos con monto</p>
+                        {commitmentGroups.upcoming.length === 0 ? (
+                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-5 text-sm font-bold text-slate-500">
+                            No hay pagos futuros con monto registrado.
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-100">
+                            {commitmentGroups.upcoming.map((item) => (
+                              <div key={item.id} className="flex items-center justify-between gap-4 py-4">
+                                <div>
+                                  <p className="font-bold text-slate-900">{item.title}</p>
+                                  <p className="text-sm text-slate-500">
+                                    {formatDate(item.dueDate)} · {item.meta}
+                                  </p>
+                                </div>
+                                <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {informationalReminders.length > 0 && (
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Alertas sin monto</p>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          No afectan caja
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {informationalReminders.map((reminder) => (
+                          <div key={reminder.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
+                            <div>
+                              <p className="text-sm font-black text-slate-800">{reminder.title}</p>
+                              <p className="text-xs font-bold text-slate-400">{formatDate(reminder.due_date)}</p>
+                            </div>
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-400">Info</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </Panel>
             </div>
 
