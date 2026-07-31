@@ -1,19 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { getAppDate, getSimulatedDate, setSimulatedDate } from '@/lib/app-date'
 
 export function DateSimulator() {
-  const [value, setValue] = useState('')
-  const [enabled, setEnabled] = useState(false)
-
-  useEffect(() => {
-    const simulated = getSimulatedDate()
-    if (simulated) {
-      setValue(simulated.slice(0, 10))
-      setEnabled(true)
-    }
-  }, [])
+  const initialSimulatedDate = getSimulatedDate()
+  const [value, setValue] = useState(() => initialSimulatedDate?.slice(0, 10) || '')
+  const [enabled, setEnabled] = useState(() => Boolean(initialSimulatedDate))
 
   const handleSave = () => {
     if (!value) return

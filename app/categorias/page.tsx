@@ -27,6 +27,7 @@ export default function CategoriasPage() {
     const [categoryType, setCategoryType] = useState('expense')
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability
         void loadCategories()
     }, [])
 

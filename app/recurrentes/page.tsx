@@ -145,12 +145,9 @@ export default function RecurrentesPage() {
     setMessage('')
 
     try {
-      const processed = await processRecurringCharges(supabase, autoDueCharges)
-      setCharges((prev) => {
-        const processedMap = new Map(processed.map((charge) => [charge.id, charge]))
-        return prev.map((charge) => processedMap.get(charge.id) ?? charge)
-      })
-      setMessage('Cargos recurrentes procesados correctamente.')
+      await processRecurringCharges(supabase, autoDueCharges)
+      await initialize()
+      setMessage('Cargos domiciliados generados como movimientos reales.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudieron procesar los recurrentes.')
     } finally {
@@ -198,9 +195,10 @@ export default function RecurrentesPage() {
                 type="button"
                 onClick={handleProcess}
                 disabled={processing || autoDueCharges.length === 0}
+                title="Crea movimientos reales para recurrentes vencidos con cuenta o tarjeta definida."
                 className="rounded-2xl bg-violet-500 hover:bg-violet-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95 disabled:opacity-50"
               >
-                {processing ? 'Procesando...' : 'Procesar domiciliados'}
+                {processing ? 'Generando cargos...' : 'Generar cargos vencidos'}
               </button>
 
               <Link

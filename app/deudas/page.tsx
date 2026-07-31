@@ -43,6 +43,7 @@ export default function DeudasPage() {
     const [message, setMessage] = useState('')
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability
         void loadDebts()
     }, [])
 

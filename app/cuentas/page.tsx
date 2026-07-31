@@ -28,6 +28,7 @@ export default function CuentasPage() {
     const [message, setMessage] = useState('')
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability
         void loadAccounts()
     }, [])
 

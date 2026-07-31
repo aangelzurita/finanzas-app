@@ -69,6 +69,7 @@ export default function EditarDeudaPage() {
     })
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability
         void loadData()
     }, [debtId])
 

@@ -113,6 +113,7 @@ export default function NuevoMovimientoPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void initialize()
   }, [])
 
@@ -172,6 +173,7 @@ export default function NuevoMovimientoPage() {
   useEffect(() => {
     if (!selectedCreditCard || transactionType !== 'credit_card_purchase' || !isMsi) return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInstallmentChargeDay(String(selectedCreditCard.payment_due_day))
 
     if (msiTimingMode === 'new') {

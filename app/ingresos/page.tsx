@@ -89,6 +89,25 @@ function parseDateOnly(value: string) {
   return new Date(`${value}T12:00:00`)
 }
 
+function toIncomeTransactionTimestamp(value: string) {
+  const date = parseDateOnly(value)
+  date.setHours(12, 0, 0, 0)
+  return date.toISOString()
+}
+
+function dateOnlyRange(value: string) {
+  const date = parseDateOnly(value)
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(date)
+  end.setHours(23, 59, 59, 999)
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  }
+}
+
 function todayDateOnly() {
   const now = getAppDate()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -324,6 +343,68 @@ export default function IngresosPage() {
   const handleMarkReceived = async (schedule: IncomeSchedule) => {
     setMarkingReceivedId(schedule.id)
     setMessage('')
+
+    if (!schedule.account_id) {
+      setMessage(`El ingreso "${schedule.name}" necesita una cuenta destino para afectar saldo.`)
+      setMarkingReceivedId(null)
+      return
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const userId = sessionData.session?.user.id
+    if (!userId) {
+      setMessage('No hay sesión activa.')
+      setMarkingReceivedId(null)
+      return
+    }
+
+    const { start, end } = dateOnlyRange(schedule.next_income_date)
+    const { data: existingIncome, error: duplicateError } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('transaction_type', 'income')
+      .eq('destination_account_id', schedule.account_id)
+      .eq('amount', Number(schedule.amount || 0))
+      .eq('description', schedule.name)
+      .eq('status', 'completed')
+      .gte('transaction_date', start)
+      .lte('transaction_date', end)
+      .limit(1)
+
+    if (duplicateError) {
+      setMessage(`No se pudo validar si el ingreso ya existe: ${duplicateError.message}`)
+      setMarkingReceivedId(null)
+      return
+    }
+
+    const alreadyRegistered = Boolean(existingIncome && existingIncome.length > 0)
+
+    if (!alreadyRegistered) {
+      const { error: transactionError } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: userId,
+          transaction_type: 'income',
+          amount: Number(schedule.amount || 0),
+          transaction_date: toIncomeTransactionTimestamp(schedule.next_income_date),
+          description: schedule.name,
+          status: 'completed',
+          affects_balance: true,
+          affects_budget: false,
+          source_account_id: null,
+          destination_account_id: schedule.account_id,
+          category_id: schedule.category_id || null,
+          related_credit_card_id: null,
+          related_debt_id: null,
+        })
+
+      if (transactionError) {
+        setMessage(`No se pudo registrar el ingreso real: ${transactionError.message}`)
+        setMarkingReceivedId(null)
+        return
+      }
+    }
+
     const nextDate = getNextIncomeScheduleOccurrenceDate(schedule)
     const payload = nextDate
       ? { next_income_date: nextDate, is_active: true }
@@ -349,9 +430,11 @@ export default function IngresosPage() {
     )
     await loadData()
     setMessage(
-      nextDate
-        ? `Ingreso "${schedule.name}" marcado como recibido. Próxima fecha: ${formatDate(nextDate)}.`
-        : `Ingreso "${schedule.name}" marcado como recibido y desactivado.`
+      alreadyRegistered
+        ? `El ingreso "${schedule.name}" ya tenía movimiento real para esa fecha. ${nextDate ? `Próxima fecha: ${formatDate(nextDate)}.` : 'Se desactivó la programación.'}`
+        : nextDate
+          ? `Ingreso "${schedule.name}" registrado como movimiento real. Próxima fecha: ${formatDate(nextDate)}.`
+          : `Ingreso "${schedule.name}" registrado como movimiento real y desactivado.`
     )
     setMarkingReceivedId(null)
   }
@@ -440,7 +523,7 @@ export default function IngresosPage() {
                 {editingId ? 'Editar ingreso' : 'Nuevo ingreso esperado'}
               </h2>
               <p className="mt-1 text-sm font-medium text-slate-500">
-                Estos registros no modifican saldos ni crean movimientos.
+                Programarlo no modifica saldos. Al marcarlo como recibido se crea el ingreso real.
               </p>
             </div>
 
@@ -647,7 +730,7 @@ export default function IngresosPage() {
               <div className="border-b border-slate-100 px-8 py-6">
                 <h2 className="text-2xl font-black text-slate-900">Listado de ingresos esperados</h2>
                 <p className="mt-1 text-sm font-medium text-slate-500">
-                  Sirven para anticipar flujo futuro; no son movimientos confirmados.
+                  Sirven para anticipar flujo futuro. Usa Recibido cuando el dinero ya cayó en la cuenta.
                 </p>
               </div>
 
@@ -720,9 +803,9 @@ export default function IngresosPage() {
                                 onClick={() => void handleMarkReceived(schedule)}
                                 disabled={markingReceivedId === schedule.id}
                                 className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-600 hover:text-white disabled:cursor-wait disabled:opacity-60"
-                                title="No crea movimientos reales; solo avanza la próxima fecha esperada."
+                                title="Crea un movimiento real de ingreso y avanza la próxima fecha esperada."
                               >
-                                {markingReceivedId === schedule.id ? 'AVANZANDO...' : 'RECIBIDO'}
+                                {markingReceivedId === schedule.id ? 'REGISTRANDO...' : 'RECIBIDO'}
                               </button>
                             )}
                             <button

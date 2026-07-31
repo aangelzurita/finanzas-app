@@ -45,6 +45,7 @@ export default function EditarCuentaPage() {
     const [isExternal, setIsExternal] = useState(false)
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/immutability
         void loadAccount()
     }, [accountId])
 

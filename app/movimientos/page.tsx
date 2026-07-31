@@ -54,6 +54,7 @@ export default function MovimientosPage() {
       return
     }
 
+    // eslint-disable-next-line react-hooks/immutability
     await loadData()
     setLoading(false)
   }

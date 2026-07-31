@@ -9,6 +9,10 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { reconcileCreditCard } from '@/lib/accounting/card-reconciliation'
 import {
+  calculateCreditCardStatementPreview,
+  type CreditCardStatementPreview,
+} from '@/lib/credit-card-statements'
+import {
   getPendingInstallmentAmount,
   getPendingInstallmentCount,
   getInstallmentDisplayState,
@@ -48,6 +52,14 @@ type Transaction = {
 
 type InstallmentPlan = CreditCardInstallment
 
+function formatDateOnlyLabel(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export default function TarjetaDetallePage() {
   const supabase = createClient()
   const params = useParams()
@@ -59,6 +71,11 @@ export default function TarjetaDetallePage() {
   const [card, setCard] = useState<CreditCard | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [installments, setInstallments] = useState<InstallmentPlan[]>([])
+  const [statementPreview, setStatementPreview] = useState<CreditCardStatementPreview | null>(null)
+  const [noInterestInput, setNoInterestInput] = useState('')
+  const [minimumInput, setMinimumInput] = useState('')
+  const [allMovementsConfirmed, setAllMovementsConfirmed] = useState(false)
+  const [closingStatement, setClosingStatement] = useState(false)
 
   useEffect(() => {
     void initialize()
@@ -217,6 +234,83 @@ export default function TarjetaDetallePage() {
     return processableInstallments.reduce((acc, plan) => acc + getPendingInstallmentCount(plan), 0)
   }, [processableInstallments])
 
+  const openStatementClose = () => {
+    if (!card) return
+
+    const preview = calculateCreditCardStatementPreview({
+      card,
+      transactions,
+      installments,
+    })
+
+    setStatementPreview(preview)
+    setNoInterestInput(String(preview.estimatedNoInterestPayment.toFixed(2)))
+    setMinimumInput(String(Number(card.minimum_payment || preview.suggestedMinimumPayment || 0).toFixed(2)))
+    setAllMovementsConfirmed(false)
+    setMessage('')
+  }
+
+  const handleCloseStatement = async () => {
+    if (!card || !statementPreview) return
+    if (!allMovementsConfirmed) {
+      setMessage('Confirma que ya cargaste todos los movimientos del periodo antes de cerrar el corte.')
+      return
+    }
+
+    const noInterestPayment = Number(noInterestInput)
+    const minimumPayment = Number(minimumInput || 0)
+
+    if (!Number.isFinite(noInterestPayment) || noInterestPayment < 0) {
+      setMessage('Ingresa un pago para no generar intereses válido.')
+      return
+    }
+
+    if (!Number.isFinite(minimumPayment) || minimumPayment < 0) {
+      setMessage('Ingresa un pago mínimo válido.')
+      return
+    }
+
+    setClosingStatement(true)
+    setMessage('')
+
+    const { error: cardError } = await supabase
+      .from('credit_cards')
+      .update({
+        no_interest_payment: noInterestPayment,
+        minimum_payment: minimumPayment,
+      })
+      .eq('id', card.id)
+
+    if (cardError) {
+      setMessage(cardError.message)
+      setClosingStatement(false)
+      return
+    }
+
+    const { error: reminderError } = await supabase
+      .from('reminders')
+      .update({
+        amount: noInterestPayment,
+        due_date: `${statementPreview.paymentDueDate}T09:00:00`,
+        status: 'pending',
+        notes: `Pago para no generar intereses confirmado al corte ${statementPreview.cutoffDate}.`,
+      })
+      .eq('related_entity_type', 'credit_card')
+      .eq('related_entity_id', card.id)
+      .ilike('title', `Pago ${card.name}%`)
+
+    if (reminderError) {
+      setMessage(`El corte se guardó, pero no se pudo actualizar el recordatorio: ${reminderError.message}`)
+    } else {
+      setMessage('Corte confirmado. Se actualizó el pago para no generar intereses y el recordatorio de pago.')
+    }
+
+    setStatementPreview(null)
+    setAllMovementsConfirmed(false)
+    await initialize()
+    setClosingStatement(false)
+  }
+
   const handleProcessInstallments = async () => {
     if (!card || pendingInstallmentCharges === 0) return
 
@@ -225,8 +319,14 @@ export default function TarjetaDetallePage() {
 
     try {
       await processInstallmentPlansForCard(supabase, processableInstallments, card.account_id)
-      setMessage('MSI procesados correctamente. Ya se generaron los cargos reales pendientes.')
+      const { error: recalculationError } = await supabase.rpc('recalculate_credit_card_balance', { p_credit_card_id: card.id })
+
+      if (recalculationError) {
+        throw new Error(recalculationError.message)
+      }
+
       await initialize()
+      setMessage('Cargos MSI vencidos generados como movimientos reales y saldo de tarjeta recalculado.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudieron procesar los MSI.')
     } finally {
@@ -315,9 +415,19 @@ export default function TarjetaDetallePage() {
                 type="button"
                 onClick={handleProcessInstallments}
                 disabled={processingInstallments || pendingInstallmentCharges === 0}
+                title="Genera movimientos reales solo para MSI vencidos que no tienen compra original ligada."
                 className="rounded-2xl bg-violet-500 hover:bg-violet-600 transition-all px-6 py-4 font-bold text-white shadow-lg active:scale-95 disabled:opacity-50 disabled:hover:bg-violet-500"
               >
-                {processingInstallments ? 'Procesando MSI...' : 'Procesar MSI'}
+                {processingInstallments ? 'Generando cargos...' : 'Generar MSI vencidos'}
+              </button>
+
+              <button
+                type="button"
+                onClick={openStatementClose}
+                title="Calcula el corte con tus movimientos registrados y te permite confirmar el pago real del banco."
+                className="rounded-2xl bg-white px-6 py-4 font-bold text-slate-900 shadow-lg transition-all hover:bg-slate-100 active:scale-95"
+              >
+                Cerrar corte
               </button>
 
               <Link
@@ -416,6 +526,115 @@ export default function TarjetaDetallePage() {
               <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
                 Reembolsos: <span>{formatMoney(reconciliation.refunds)}</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {statementPreview && (
+          <div className="mb-8 rounded-[2rem] border border-sky-100 bg-white p-6 shadow-lg">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-xl font-black text-slate-900">Cierre de corte</h2>
+                  <span className="rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-black uppercase tracking-widest text-sky-700">
+                    Confirmación manual
+                  </span>
+                </div>
+                <p className="mt-2 max-w-3xl text-sm font-medium text-slate-500">
+                  Revisa si ya cargaste todos los movimientos del periodo. El estimado suma compras normales y mensualidades MSI del corte, resta reembolsos y muestra pagos solo como referencia. Si tu banco muestra otro monto, captura el monto real antes de confirmar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatementPreview(null)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-4">
+              <MiniStat label="Periodo" value={`${formatDateOnlyLabel(statementPreview.periodStartDate)} - ${formatDateOnlyLabel(statementPreview.periodEndDate)}`} />
+              <MiniStat label="Fecha de corte" value={formatDateOnlyLabel(statementPreview.cutoffDate)} />
+              <MiniStat label="Fecha límite pago" value={formatDateOnlyLabel(statementPreview.paymentDueDate)} />
+              <MiniStat label="Movimientos revisados" value={String(statementPreview.transactionCount)} />
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-5">
+              <div className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
+                Compras normales: <span className="text-slate-900">{formatMoney(statementPreview.normalPurchases)}</span>
+              </div>
+              <div className="rounded-2xl bg-sky-50 p-3 text-sm font-bold text-sky-700">
+                MSI del corte: <span>{formatMoney(statementPreview.msiCharges)}</span>
+              </div>
+              <div className="rounded-2xl bg-violet-50 p-3 text-sm font-bold text-violet-700">
+                MSI total excluido: <span>{formatMoney(statementPreview.msiPurchaseTotalsExcluded)}</span>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+                Pagos registrados: <span>{formatMoney(statementPreview.payments)}</span>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
+                Reembolsos: <span>{formatMoney(statementPreview.refunds)}</span>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Pago para no generar intereses
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={noInterestInput}
+                  onChange={(event) => setNoInterestInput(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-lg font-black text-slate-900 outline-none transition focus:border-slate-900"
+                />
+                <span className="mt-2 block text-xs font-bold text-slate-500">
+                  Estimado por la app: {formatMoney(statementPreview.estimatedNoInterestPayment)}.
+                </span>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Pago mínimo
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={minimumInput}
+                  onChange={(event) => setMinimumInput(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-lg font-black text-slate-900 outline-none transition focus:border-slate-900"
+                />
+                <span className="mt-2 block text-xs font-bold text-slate-500">
+                  Si el banco aún no lo muestra, puedes dejar el valor actual y actualizarlo después.
+                </span>
+              </label>
+            </div>
+
+            <label className="mt-5 flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold text-slate-600">
+              <input
+                type="checkbox"
+                checked={allMovementsConfirmed}
+                onChange={(event) => setAllMovementsConfirmed(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300"
+              />
+              <span>
+                Ya revisé mi app bancaria y cargué las compras, pagos, reembolsos y MSI que corresponden a este corte.
+              </span>
+            </label>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void handleCloseStatement()}
+                disabled={closingStatement}
+                className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-black uppercase tracking-widest text-white transition hover:bg-black disabled:cursor-wait disabled:opacity-60"
+              >
+                {closingStatement ? 'Guardando corte...' : 'Confirmar corte'}
+              </button>
             </div>
           </div>
         )}

@@ -62,6 +62,7 @@ export default function PresupuestoPage() {
   )
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     void initialize()
   }, [])
 

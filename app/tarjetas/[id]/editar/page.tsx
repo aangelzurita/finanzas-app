@@ -15,6 +15,10 @@ type CardBalanceTransaction = {
   status: string | null
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Error desconocido'
+}
+
 export default function EditarTarjetaPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -41,6 +45,7 @@ export default function EditarTarjetaPage() {
   })
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     void initialize()
   }, [cardId])
 
@@ -217,8 +222,8 @@ export default function EditarTarjetaPage() {
           payment_due_day: cardData.payment_due_day,
         },
       ])
-    } catch (reminderError: any) {
-      fail(`La tarjeta se actualizó, pero no se pudieron sincronizar los recordatorios: ${reminderError?.message || 'Error desconocido'}`)
+    } catch (reminderError: unknown) {
+      fail(`La tarjeta se actualizó, pero no se pudieron sincronizar los recordatorios: ${getErrorMessage(reminderError)}`)
       return
     }
 

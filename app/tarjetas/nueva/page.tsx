@@ -8,6 +8,10 @@ import { CardForm } from '@/components/cards/CardForm'
 import { syncCardReminders } from '@/lib/card-reminders'
 import { validateCard, parseCardData } from '@/lib/card-utils'
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Error desconocido'
+}
+
 export default function NuevaTarjetaPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -102,8 +106,8 @@ export default function NuevaTarjetaPage() {
           payment_due_day: cardData.payment_due_day,
         },
       ])
-    } catch (reminderError: any) {
-      fail(`La tarjeta se creó, pero no se pudieron sincronizar los recordatorios: ${reminderError?.message || 'Error desconocido'}`)
+    } catch (reminderError: unknown) {
+      fail(`La tarjeta se creó, pero no se pudieron sincronizar los recordatorios: ${getErrorMessage(reminderError)}`)
       return
     }
 

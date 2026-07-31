@@ -87,6 +87,11 @@ function affectsFlow(reminder: Pick<Reminder, 'amount' | 'status' | 'reminder_ty
   return Number(reminder.amount || 0) > 0
 }
 
+function hasFinancialAmount(reminder: Pick<Reminder, 'amount' | 'reminder_type'>) {
+  if (reminder.reminder_type === 'non_financial') return false
+  return Number(reminder.amount || 0) > 0
+}
+
 function statusLabel(status: string) {
   if (status === 'completed') return 'Completada'
   if (status === 'skipped') return 'Omitida'
@@ -235,8 +240,20 @@ export default function RecordatoriosPage() {
       error = retry.error
     }
 
-    if (error) setMessage(error.message)
-    else void loadReminders()
+    if (error) {
+      setMessage(error.message)
+    } else {
+      const verb = status === 'completed' ? 'atendida' : status === 'skipped' ? 'omitida' : 'reabierta'
+      const recurringNote = reminder.frequency && status !== 'pending'
+        ? ' Se avanzó a la siguiente fecha programada.'
+        : ''
+      const impactNote = hasFinancialAmount(reminder) && status !== 'pending'
+        ? ' No se creó movimiento real ni se modificaron saldos.'
+        : ''
+
+      setMessage(`Alerta ${verb}.${recurringNote}${impactNote}`)
+      void loadReminders()
+    }
     setLoadingAction(false)
   }
 
@@ -307,7 +324,7 @@ export default function RecordatoriosPage() {
                 {editingId ? 'Editar alerta' : 'Nueva alerta'}
               </h2>
               <p className="text-sm font-medium text-slate-400">
-                Si no tiene monto, no afecta caja ni proyeccion.
+                Las alertas sirven para visibilidad y proyeccion. Marcarlas como atendidas no crea movimientos reales.
               </p>
             </div>
             {editingId && (
@@ -548,7 +565,7 @@ function ReminderItem({
             <span className={`rounded-full px-3 py-0.5 text-[10px] font-black uppercase tracking-widest ${
               flowImpact ? 'bg-rose-50 text-rose-700' : 'bg-sky-50 text-sky-700'
             }`}>
-              {flowImpact ? 'Afecta flujo' : 'Solo recordatorio'}
+              {flowImpact ? 'Proyecta flujo' : 'Solo recordatorio'}
             </span>
             {reminder.frequency && (
               <span className="rounded-full bg-violet-50 px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-violet-700">
@@ -570,12 +587,14 @@ function ReminderItem({
             <>
               <button
                 onClick={onComplete}
+                title="Solo cambia el estado de la alerta; no crea movimientos ni cambia saldos."
                 className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition-all hover:bg-emerald-500 hover:text-white active:scale-95"
               >
-                COMPLETAR
+                ATENDIDA
               </button>
               <button
                 onClick={onSkip}
+                title="Omite esta alerta; no crea movimientos ni cambia saldos."
                 className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition-all hover:bg-slate-700 hover:text-white active:scale-95"
               >
                 OMITIR
