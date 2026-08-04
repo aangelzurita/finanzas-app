@@ -5,33 +5,25 @@ import { createClient } from '@/lib/supabase-browser'
 import { getAppDate } from '@/lib/app-date'
 import {
   formatMoney,
-  formatDate,
-  friendlyTransactionType
+  formatDate
 } from '@/lib/utils'
 import {
   buildBudgetRows,
   buildCategoryChartData,
-  buildConsolidatedCommitments,
   buildDashboardMetrics,
-  buildUpcomingCardPayments,
-  daysUntilDate,
   type Account,
   type Budget,
   type BudgetProgress,
   type Category,
-  type CommitmentItem,
   type CreditCard,
   type Debt,
   type Reminder,
   type Transaction,
 } from '@/lib/dashboard'
-import { KpiCard } from '@/components/ui/KpiCard'
-import { Panel } from '@/components/ui/Panel'
-import { QuickNav } from '@/components/ui/QuickNav'
+import { MiniStat } from '@/components/ui/MiniStat'
+import { MainNavigation } from '@/components/ui/MainNavigation'
 import {
   getPendingInstallmentAmount,
-  getInstallmentChargeDate,
-  getInstallmentDisplayState,
   syncInstallmentPlans,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
@@ -42,36 +34,22 @@ import {
   type FinancialCalendarEvent,
   type IncomeSchedule,
 } from '@/lib/financial-calendar'
-import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
+import { buildCashflowProjection } from '@/lib/cashflow-projection'
 import { adviseCreditCards } from '@/lib/credit-card-advisor'
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie
-} from 'recharts'
-import {
-  ArrowUpRight,
-  ArrowDownRight,
   CreditCard as CardIcon,
   Calendar,
   Wallet,
-  ArrowRight,
   AlertTriangle,
-  BadgeDollarSign,
-  ShieldCheck,
-  TrendingDown
+  Banknote,
+  CircleDollarSign,
+  HandCoins,
+  Landmark,
+  Sparkles
 } from 'lucide-react'
 import Link from 'next/link'
 
 type InstallmentPlan = CreditCardInstallment
-type PaymentFilter = 'all' | 'cash' | 'credit_card'
 type HealthTone = 'emerald' | 'amber' | 'rose' | 'slate'
 
 function currentMonthKey() {
@@ -86,14 +64,57 @@ function monthRange(monthKey: string) {
   return { start, end, month, year }
 }
 
+function sourceLabel(sourceType: FinancialCalendarEvent['sourceType']) {
+  const labels: Record<FinancialCalendarEvent['sourceType'], string> = {
+    income_schedule: 'Ingreso',
+    recurring_charge: 'Recurrente',
+    installment: 'MSI',
+    credit_card_payment: 'Tarjeta',
+    debt_payment: 'Deuda',
+    reminder: 'Recordatorio',
+    transaction: 'Movimiento',
+  }
+
+  return labels[sourceType]
+}
+
+function confidenceLabel(event: FinancialCalendarEvent) {
+  if (event.eventStatus === 'pending_confirmation') return 'Pendiente'
+  if (event.eventStatus === 'informational') return 'Informativo'
+  if (event.confidence === 'confirmed') return 'Confirmado'
+  if (event.confidence === 'manual') return 'Manual'
+  return 'Estimado'
+}
+
+function eventAmountClass(event: FinancialCalendarEvent) {
+  if (!event.affectsCash) return 'text-sky-600'
+  if (event.direction === 'inflow') return 'text-emerald-600'
+  if (event.direction === 'outflow') return 'text-rose-600'
+  return 'text-slate-600'
+}
+
+function sourceActionHref(event?: FinancialCalendarEvent) {
+  if (!event) return '/flujo'
+
+  const hrefs: Record<FinancialCalendarEvent['sourceType'], string> = {
+    income_schedule: '/ingresos',
+    recurring_charge: '/recurrentes',
+    installment: '/obligaciones',
+    credit_card_payment: '/movimientos/nuevo?type=credit_card_payment',
+    debt_payment: '/movimientos/nuevo?type=debt_payment',
+    reminder: '/recordatorios',
+    transaction: '/movimientos',
+  }
+
+  return hrefs[event.sourceType]
+}
+
 export default function Home() {
   const supabase = createClient()
 
   const [session, setSession] = useState<{ user: { email?: string | null } } | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
   const [monthTransactions, setMonthTransactions] = useState<Transaction[]>([])
-  const [reminders, setReminders] = useState<Reminder[]>([])
   const [projectionReminders, setProjectionReminders] = useState<Reminder[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [recurring, setRecurring] = useState<RecurringCharge[]>([])
@@ -103,11 +124,8 @@ export default function Home() {
   const [debts, setDebts] = useState<Debt[]>([])
   const [incomeSchedules, setIncomeSchedules] = useState<IncomeSchedule[]>([])
   const [loading, setLoading] = useState(true)
-  const [chartsReady, setChartsReady] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey)
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
-  const [selectedCardId, setSelectedCardId] = useState('all')
+  const selectedMonth = currentMonthKey()
   const appDate = useMemo(() => getAppDate(), [])
 
   const loadDashboard = useCallback(async () => {
@@ -118,9 +136,7 @@ export default function Home() {
 
       const [
         { data: accountsData, error: accountsError },
-        { data: recentTxData, error: recentTxError },
         { data: monthTxData, error: monthTxError },
-        { data: remindersData, error: remindersError },
         { data: projectionRemindersData, error: projectionRemindersError },
         { data: categoriesData, error: categoriesError },
         { data: recurringData, error: recurringError },
@@ -131,13 +147,11 @@ export default function Home() {
         { data: incomeSchedulesData, error: incomeSchedulesError }
       ] = await Promise.all([
         supabase.from('accounts').select('*').eq('is_active', true).order('name'),
-        supabase.from('transactions').select('*').order('transaction_date', { ascending: false }).limit(5),
         supabase
           .from('transactions')
           .select('*')
           .gte('transaction_date', start.toISOString())
           .lte('transaction_date', end.toISOString()),
-        supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }).limit(5),
         supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }),
         supabase.from('categories').select('*'),
         supabase.from('recurring_charges').select('*').eq('is_active', true),
@@ -162,9 +176,7 @@ export default function Home() {
 
       const firstError = [
         accountsError,
-        recentTxError,
         monthTxError,
-        remindersError,
         projectionRemindersError,
         categoriesError,
         recurringError,
@@ -180,9 +192,7 @@ export default function Home() {
       }
 
       setAccounts((accountsData as Account[]) ?? [])
-      setRecentTransactions((recentTxData as Transaction[]) ?? [])
       setMonthTransactions((monthTxData as Transaction[]) ?? [])
-      setReminders((remindersData as Reminder[]) ?? [])
       setProjectionReminders((projectionRemindersData as Reminder[]) ?? [])
       setCategories((categoriesData as Category[]) ?? [])
       setRecurring((recurringData as RecurringCharge[]) ?? [])
@@ -220,25 +230,12 @@ export default function Home() {
     void initialize()
   }, [initialize])
 
-  useEffect(() => {
-    setChartsReady(true)
-  }, [])
-
   const categoryMap = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
     [categories]
   )
 
-  const filteredMonthTransactions = useMemo(
-    () =>
-      monthTransactions.filter((tx) => {
-        if (paymentFilter === 'cash' && tx.transaction_type.startsWith('credit_card')) return false
-        if (paymentFilter === 'credit_card' && !tx.transaction_type.startsWith('credit_card')) return false
-        if (selectedCardId !== 'all' && tx.related_credit_card_id !== selectedCardId) return false
-        return true
-      }),
-    [monthTransactions, paymentFilter, selectedCardId]
-  )
+  const filteredMonthTransactions = monthTransactions
 
   const msiPurchaseIds = useMemo(
     () => new Set(installments.map((plan) => plan.purchase_transaction_id).filter(Boolean) as string[]),
@@ -252,21 +249,7 @@ export default function Home() {
     [selectedMonthEnd]
   )
 
-  useEffect(() => {
-    if (paymentFilter === 'cash' && selectedCardId !== 'all') {
-      setSelectedCardId('all')
-    }
-  }, [paymentFilter, selectedCardId])
-
-  const filteredInstallmentsForDashboard = useMemo(
-    () =>
-      installments.filter((plan) => {
-        if (paymentFilter === 'cash') return false
-        if (selectedCardId !== 'all' && plan.credit_card_id !== selectedCardId) return false
-        return true
-      }),
-    [installments, paymentFilter, selectedCardId]
-  )
+  const filteredInstallmentsForDashboard = installments
 
   const pendingInstallmentPlans = useMemo(
     () =>
@@ -274,11 +257,6 @@ export default function Home() {
         (plan) => pendingInstallmentAmountForDashboard(plan) > 0
       ),
     [filteredInstallmentsForDashboard, pendingInstallmentAmountForDashboard]
-  )
-
-  const monthInstallmentPlans = useMemo(
-    () => pendingInstallmentPlans.slice(0, 5),
-    [pendingInstallmentPlans]
   )
 
   const installmentBudgetAmounts = useMemo(() => {
@@ -314,73 +292,6 @@ export default function Home() {
         msiPurchaseIds
       ),
     [accounts, filteredMonthTransactions, recurring, debts, filteredInstallmentsForDashboard, budgetRows, pendingInstallmentAmountForDashboard, msiPurchaseIds]
-  )
-
-  const dueRecurringCharges = useMemo(
-    () => recurring.filter((charge) => getPendingRecurringAmount(charge) > 0).slice(0, 5),
-    [recurring]
-  )
-
-  const upcomingCardPayments = useMemo(() => buildUpcomingCardPayments(creditCards), [creditCards])
-
-  const normalizedCardPaymentTitles = useMemo(
-    () =>
-      upcomingCardPayments.map((card) =>
-        card.name
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-      ),
-    [upcomingCardPayments]
-  )
-
-  const reminderLooksLikeCardPayment = useCallback(
-    (reminder: Reminder) => {
-      const title = reminder.title
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-      const cardNameFromReminder = title.replace(/^pago\s+/, '').trim()
-
-      return normalizedCardPaymentTitles.some((cardName) => {
-        if (!cardName || !cardNameFromReminder) return false
-        return title.includes(cardName) || cardName.includes(cardNameFromReminder)
-      })
-    },
-    [normalizedCardPaymentTitles]
-  )
-
-  const cashPaymentReminders = useMemo(
-    () =>
-      reminders.filter((reminder) => {
-        const amount = Number(reminder.amount || 0)
-        if (amount <= 0) return false
-        return !reminderLooksLikeCardPayment(reminder)
-      }),
-    [reminders, reminderLooksLikeCardPayment]
-  )
-
-  const informationalReminders = useMemo(
-    () =>
-      reminders
-        .filter((reminder) => Number(reminder.amount || 0) <= 0)
-        .slice(0, 4),
-    [reminders]
-  )
-
-  const pendingReminderAmount = useMemo(
-    () => cashPaymentReminders.reduce((acc, reminder) => acc + Number(reminder.amount || 0), 0),
-    [cashPaymentReminders]
-  )
-
-  const pendingCardPaymentAmount = useMemo(
-    () => upcomingCardPayments.reduce((acc, card) => acc + Number(card.no_interest_payment || card.minimum_payment || 0), 0),
-    [upcomingCardPayments]
-  )
-
-  const availableAfterPending = useMemo(
-    () => metrics.disponible - metrics.fixedExpense - pendingReminderAmount - pendingCardPaymentAmount,
-    [metrics.disponible, metrics.fixedExpense, pendingReminderAmount, pendingCardPaymentAmount]
   )
 
   const projectionEndDate = useMemo(() => getEndOfCurrentMonth(appDate), [appDate])
@@ -477,105 +388,31 @@ export default function Home() {
   }, [financialEvents])
 
   const topCashflowEvents = useMemo(
-    () =>
-      financialEvents
-        .filter((event) => event.affectsCash)
+    () => {
+      const todayKey = appDate.toISOString().slice(0, 10)
+      const priority = (event: FinancialCalendarEvent) => {
+        if (event.sourceType === 'income_schedule' && event.date <= todayKey) return 0
+        if (event.direction === 'outflow' && event.affectsCash && event.date <= todayKey) return 1
+        if (event.eventStatus === 'pending_confirmation') return 2
+        if (event.direction === 'outflow' && event.affectsCash) return 3
+        if (event.sourceType === 'income_schedule') return 4
+        if (!event.affectsCash) return 5
+        return 6
+      }
+
+      return financialEvents
+        .filter((event) => event.affectsCash || event.eventStatus === 'pending_confirmation' || event.eventStatus === 'informational')
         .sort((a, b) => {
+          const priorityDiff = priority(a) - priority(b)
+          if (priorityDiff !== 0) return priorityDiff
           const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime()
           if (dateDiff !== 0) return dateDiff
           return Number(b.amount || 0) - Number(a.amount || 0)
         })
-        .slice(0, 5),
-    [financialEvents]
+        .slice(0, 5)
+    },
+    [appDate, financialEvents]
   )
-
-  const riskLabels: Record<CashflowRiskLevel, string> = {
-    ok: 'Estable',
-    caution: 'Precaución',
-    risk: 'Riesgo',
-  }
-
-  const riskClasses: Record<CashflowRiskLevel, string> = {
-    ok: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    caution: 'bg-amber-50 text-amber-700 border-amber-100',
-    risk: 'bg-rose-50 text-rose-700 border-rose-100',
-  }
-
-  const confidenceLabels: Record<FinancialCalendarEvent['confidence'], string> = {
-    confirmed: 'Confirmado',
-    estimated: 'Estimado',
-    manual: 'Manual',
-  }
-
-  const consolidatedCommitments = useMemo<CommitmentItem[]>(
-    () =>
-      buildConsolidatedCommitments(
-        cashPaymentReminders,
-        [],
-        dueRecurringCharges.filter((charge) => charge.payment_method_type !== 'credit_card'),
-        upcomingCardPayments,
-        getPendingRecurringAmount
-      ),
-    [cashPaymentReminders, dueRecurringCharges, upcomingCardPayments]
-  )
-
-  const todayStart = useMemo(
-    () => new Date(appDate.getFullYear(), appDate.getMonth(), appDate.getDate()),
-    [appDate]
-  )
-
-  const commitmentGroups = useMemo(() => {
-    const dated = consolidatedCommitments.map((item) => ({
-      ...item,
-      isOverdue: new Date(item.dueDate) < todayStart,
-    }))
-
-    return {
-      overdue: dated.filter((item) => item.isOverdue),
-      upcoming: dated.filter((item) => !item.isOverdue),
-    }
-  }, [consolidatedCommitments, todayStart])
-
-  const cardInstallmentBreakdown = useMemo(
-    () =>
-      monthInstallmentPlans
-        .map((plan) => {
-          const displayState = getInstallmentDisplayState(plan)
-          const chargeDate = getInstallmentChargeDate(plan, displayState.currentInstallmentNumber)
-
-          return {
-            id: plan.id,
-            title: plan.description,
-            dueDate: chargeDate.toISOString(),
-            amount: Number(plan.monthly_amount || 0),
-            meta: `MSI ${displayState.currentInstallmentNumber}/${plan.total_months}`,
-            isOverdue: chargeDate < todayStart,
-          }
-        })
-        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-        .slice(0, 5),
-    [monthInstallmentPlans, todayStart]
-  )
-
-  const budgetHighlights = useMemo(
-    () => budgetRows.filter((row) => row.progress >= 60).slice(0, 5),
-    [budgetRows]
-  )
-
-  const toneClasses: Record<CommitmentItem['tone'], string> = {
-    slate: 'text-slate-900',
-    sky: 'text-sky-600',
-    violet: 'text-violet-600',
-    rose: 'text-rose-600',
-    amber: 'text-amber-600',
-  }
-
-  // Chart Data: generated spending vs real cash outflow
-  const flowChartData = [
-    { name: 'Ingresos', value: metrics.totalIncome, color: '#10b981' },
-    { name: 'Gasto generado', value: metrics.generatedExpense, color: '#f43f5e' },
-    { name: 'Salida real', value: metrics.cashOutflow, color: '#0f172a' }
-  ]
 
   const categoryChartData = useMemo(
     () => buildCategoryChartData(filteredMonthTransactions, categories, installmentBudgetAmounts, msiPurchaseIds),
@@ -703,12 +540,7 @@ export default function Home() {
     slate: 'border-slate-100 bg-gradient-to-br from-white via-white to-slate-50',
   }
 
-  const healthIconClasses: Record<HealthTone, string> = {
-    emerald: 'bg-emerald-100 text-emerald-700',
-    amber: 'bg-amber-100 text-amber-700',
-    rose: 'bg-rose-100 text-rose-700',
-    slate: 'bg-slate-100 text-slate-600',
-  }
+
 
   const healthRiskExplanation = useMemo(() => {
     if (cashflowProjection.summary.currentBalance < 0) {
@@ -731,6 +563,67 @@ export default function Home() {
     window.location.reload()
   }
 
+  const greeting = appDate.getHours() < 12 ? 'Buenos días' : appDate.getHours() < 19 ? 'Buenas tardes' : 'Buenas noches'
+  const nextImportantEvent = topCashflowEvents[0]
+  const upcomingEvents = topCashflowEvents.slice(0, 5)
+  const projectedPointByDate = new Map(cashflowProjection.points.map((point) => [point.date, point]))
+  const primaryAttention = leakHealth.tone === 'slate'
+    ? {
+      title: nextIncomeHealth.status,
+      text: nextIncomeHealth.text,
+      tone: nextIncomeHealth.tone,
+    }
+    : {
+      title: leakHealth.title,
+      text: leakHealth.text,
+      tone: leakHealth.tone,
+    }
+
+  const quickActions = [
+    {
+      label: 'Gasto',
+      description: 'Efectivo o débito',
+      href: '/movimientos/nuevo?type=expense',
+      icon: CircleDollarSign,
+      className: 'bg-rose-50 text-rose-700 border-rose-100',
+    },
+    {
+      label: 'Compra TDC',
+      description: 'Normal o MSI',
+      href: '/movimientos/nuevo?type=credit_card_purchase',
+      icon: CardIcon,
+      className: 'bg-sky-50 text-sky-700 border-sky-100',
+    },
+    {
+      label: 'Ingreso',
+      description: 'Nómina o bono',
+      href: '/movimientos/nuevo?type=income',
+      icon: Banknote,
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    },
+    {
+      label: 'Pago TDC',
+      description: 'Abono a tarjeta',
+      href: '/movimientos/nuevo?type=credit_card_payment',
+      icon: Landmark,
+      className: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+    },
+    {
+      label: 'Pago deuda',
+      description: 'Préstamo o adeudo',
+      href: '/movimientos/nuevo?type=debt_payment',
+      icon: HandCoins,
+      className: 'bg-amber-50 text-amber-700 border-amber-100',
+    },
+    {
+      label: 'Simular',
+      description: 'Antes de gastar',
+      href: '/flujo',
+      icon: Sparkles,
+      className: 'bg-slate-100 text-slate-800 border-slate-200',
+    },
+  ]
+
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 flex items-center justify-center">
@@ -745,25 +638,27 @@ export default function Home() {
   if (!session) return <LoginScreen />
 
   return (
-    <main className="finance-shell min-h-screen pb-12">
-      {/* Header Premium */}
-      <section className="finance-surface-dark relative overflow-hidden text-white">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl -mr-48 -mt-48" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -ml-48 -mb-48" />
-
-        <div className="max-w-7xl mx-auto px-6 py-12 relative z-10">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+    <main className="min-h-screen bg-[#eef3f8] pb-28 text-slate-950 md:pb-12">
+      <section className="border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
+        <div className="mx-auto max-w-7xl px-5 pb-12 pt-8 md:px-6 md:pb-16 md:pt-10">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-emerald-400 font-black uppercase tracking-[0.2em] text-xs mb-3">Resumen Inteligente</p>
-              <h1 className="text-5xl font-black tracking-tighter">Dashboard <span className="text-slate-500">Financiero</span></h1>
-              <p className="text-slate-400 mt-2 text-lg font-medium opacity-80">{session.user.email}</p>
+              <p className="w-fit rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-black uppercase tracking-[0.26em] text-emerald-200">Hoy</p>
+              <h1 className="mt-3 text-4xl font-black tracking-tight md:text-6xl">
+                {greeting}
+              </h1>
+              <p className="mt-4 max-w-3xl text-base font-semibold leading-relaxed text-slate-200 md:text-lg">
+                {healthRiskExplanation} Lectura estimada con tus registros actuales.
+              </p>
             </div>
-
             <div className="flex flex-wrap gap-3">
-              <Link href="/movimientos/nuevo" className="rounded-2xl bg-white px-6 py-4 font-black text-slate-950 hover:bg-slate-200 transition shadow-xl flex items-center gap-2">
-                <ArrowUpRight size={20} /> Nuevo Movimiento
+              <Link href="/flujo" className="rounded-2xl bg-emerald-400 px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl shadow-emerald-950/20 transition hover:-translate-y-0.5 hover:bg-emerald-300 active:scale-95">
+                Simular compra
               </Link>
-              <button onClick={logout} className="rounded-2xl border border-slate-800 bg-slate-900/50 px-6 py-4 font-bold text-slate-300 hover:bg-slate-800 transition">
+              <Link href="/movimientos/nuevo" className="rounded-2xl bg-white px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-slate-100 active:scale-95">
+                Registrar movimiento
+              </Link>
+              <button onClick={logout} className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-300 transition hover:bg-slate-800">
                 Salir
               </button>
             </div>
@@ -771,757 +666,324 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-6 -mt-8 relative z-20">
+      <section className="relative z-20 mx-auto max-w-7xl px-5 -mt-7 md:px-6">
         {loadError && (
-          <div className="mb-8 rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm font-bold text-rose-700 shadow-sm">
+          <div className="mb-6 rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm font-bold text-rose-700 shadow-sm">
             {loadError}
           </div>
         )}
 
-        <QuickNav />
+        <MainNavigation />
 
-        <section className="mb-8">
-          <Panel
-            title="Salud financiera"
-            subtitle="Resumen ejecutivo financiero con base en tus registros actuales"
-            className="border-slate-200/80 bg-white/95 p-6 shadow-2xl shadow-slate-900/10"
-          >
-            <div className="mb-6 flex flex-col gap-3 rounded-[1.75rem] border border-slate-100 bg-slate-950 px-5 py-5 text-white sm:flex-row sm:items-center sm:justify-between">
+        <section className="mb-6 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/8 md:p-5">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Acciones rápidas</p>
+              <h2 className="text-2xl font-black tracking-tight text-slate-950">¿Qué necesitas hacer hoy?</h2>
+            </div>
+            <p className="text-sm font-bold text-slate-500">Accesos directos a tus tareas diarias.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {quickActions.map((action) => {
+              const Icon = action.icon
+
+              return (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-lg ${action.className}`}
+                >
+                  <div className="flex items-center gap-3 lg:block">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80 shadow-sm">
+                      <Icon size={20} />
+                    </span>
+                    <div className="lg:mt-4">
+                      <p className="text-sm font-black uppercase tracking-wide">{action.label}</p>
+                      <p className="mt-0.5 text-xs font-bold opacity-75">{action.description}</p>
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-3">
+          <div className="rounded-[2rem] border border-white/10 bg-[#0d1b2f] p-6 shadow-2xl shadow-slate-950/20 md:p-8 xl:col-span-2">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">Lectura rápida</p>
-                <p className="mt-2 text-2xl font-black tracking-tight">Tu resumen ejecutivo para decidir antes de gastar</p>
-                <p className="mt-2 text-sm font-bold text-slate-300">{healthRiskExplanation}</p>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-300">Posición de efectivo</p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-white md:text-3xl">
+                  Dinero real para decidir hoy
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-300">
+                  Cuentas propias menos compromisos proyectados antes del próximo ingreso.
+                </p>
               </div>
               <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
                 {nextIncomeHealth.status}
               </span>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-4">
-              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[nextIncomeHealth.tone]}`}>
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[nextIncomeHealth.tone]}`}>
-                      <ShieldCheck size={19} />
-                    </span>
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Próxima quincena</p>
-                  </div>
-                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[nextIncomeHealth.tone]}`}>
-                    {nextIncomeHealth.status}
-                  </span>
-                </div>
-                <p className="text-2xl font-black tracking-tight text-slate-950">
-                  {cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
-                </p>
-                <p className="mt-1 text-xs font-bold text-slate-400">
-                  {cashflowProjection.summary.nextIncomeDate ? `Próximo ingreso: ${formatDate(cashflowProjection.summary.nextIncomeDate)}` : 'Sin ingreso esperado'}
-                </p>
-                <p className="mt-4 text-sm font-black text-slate-700">{nextIncomeHealth.text}</p>
-                <p className="mt-2 rounded-2xl bg-white/70 px-3 py-2 text-xs font-bold text-slate-500">
-                  Si ese ingreso ya cayó y registraste el movimiento, márcalo como recibido en Ingresos para avanzar la próxima fecha.
-                </p>
-                <div className="mt-4">
-                  <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
-                    <span>Margen</span>
-                    <span>Compromisos</span>
-                  </div>
-                  <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="bg-emerald-500 transition-all"
-                      style={{ width: `${nextIncomeMarginWidth}%` }}
-                    />
-                    <div
-                      className="bg-slate-300 transition-all"
-                      style={{ width: `${nextIncomeCommitmentWidth}%` }}
-                    />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs font-bold text-slate-500">
-                    <span>{formatMoney(nextIncomeHealth.margin)}</span>
-                    <span>{formatMoney(commitmentsBeforeNextIncome)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[pressureHealth.tone]}`}>
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[pressureHealth.tone]}`}>
-                      <BadgeDollarSign size={19} />
-                    </span>
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Pagos y compromisos del mes</p>
-                  </div>
-                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[pressureHealth.tone]}`}>
-                    {pressureHealth.status}
-                  </span>
-                </div>
-                <p className="text-2xl font-black tracking-tight text-slate-950">{formatMoney(pressureHealth.value)}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">Tarjetas, MSI, deudas, recurrentes y alertas con monto.</p>
-                {monthlyCommitmentBreakdown.length > 0 ? (
-                  <div className="mt-4 space-y-3">
-                    {monthlyCommitmentBreakdown.map((item) => {
-                      const width = pressureHealth.value > 0
-                        ? Math.min(100, Math.max(6, (item.amount / pressureHealth.value) * 100))
-                        : 0
-
-                      return (
-                        <div key={item.label}>
-                          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-bold text-slate-500">
-                            <span>{item.label}</span>
-                            <span>{formatMoney(item.amount)}</span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                            <div className={`h-full rounded-full ${item.className}`} style={{ width: `${width}%` }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="mt-4 text-sm font-bold text-slate-600">{pressureHealth.text}</p>
-                )}
-                <p className="mt-4 rounded-2xl bg-white/70 px-3 py-2 text-xs font-bold text-slate-500">
-                  No es gasto nuevo: es dinero ya comprometido para cubrir este mes.
-                </p>
-              </div>
-
-              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[bestAdvisorCard ? bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald' : 'slate']}`}>
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${bestAdvisorCard ? healthIconClasses[bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald'] : healthIconClasses.slate}`}>
-                      <CardIcon size={19} />
-                    </span>
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Mejor tarjeta hoy</p>
-                  </div>
-                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${bestAdvisorCard ? healthToneClasses[bestAdvisorCard.recommendation === 'avoid' ? 'rose' : bestAdvisorCard.riskLevel === 'medium' ? 'amber' : 'emerald'] : healthToneClasses.slate}`}>
-                    {bestAdvisorCard ? (bestAdvisorCard.recommendation === 'avoid' ? 'Evitar' : 'Bien') : 'Sin datos'}
-                  </span>
-                </div>
-                <p className="text-2xl font-black tracking-tight text-slate-950">{bestAdvisorCard?.cardName || '---'}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">
-                  {bestAdvisorCard ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar.` : 'Registra tarjetas activas para recomendar.'}
-                </p>
-                <div className="mt-4 rounded-2xl bg-white/70 px-3 py-3">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Razón principal</p>
-                  <p className="mt-1 text-sm font-bold text-slate-700">
-                  {bestAdvisorCard?.reasons[0] || 'Sin datos suficientes para elegir tarjeta.'}
-                  </p>
-                </div>
-              </div>
-
-              <div className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${healthCardClasses[leakHealth.tone]}`}>
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${healthIconClasses[leakHealth.tone]}`}>
-                      {leakHealth.tone === 'rose' ? <AlertTriangle size={19} /> : <TrendingDown size={19} />}
-                    </span>
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Categoría de atención</p>
-                  </div>
-                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${healthToneClasses[leakHealth.tone]}`}>
-                    {leakHealth.status}
-                  </span>
-                </div>
-                <p className="text-2xl font-black tracking-tight text-slate-950">{leakHealth.title}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">Presupuesto y gasto del mes seleccionado.</p>
-                <div className="mt-4">
-                  <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
-                    <span>Indicador</span>
-                    <span>{leakHealth.progress.toFixed(0)}%</span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className={`h-full rounded-full ${leakHealth.tone === 'rose' ? 'bg-rose-500' : leakHealth.tone === 'amber' ? 'bg-amber-500' : leakHealth.tone === 'emerald' ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                      style={{ width: `${leakHealth.progress}%` }}
-                    />
-                  </div>
-                </div>
-                <p className="mt-4 text-sm font-bold text-slate-700">{leakHealth.text}</p>
-              </div>
-            </div>
-            <p className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
-              Lectura estimada con base en tus registros actuales.
-            </p>
-          </Panel>
-        </section>
-
-        <Panel title="Lectura del dashboard" subtitle="Ajusta el mes, el medio de pago y la tarjeta antes de revisar disponibilidad, presión, riesgo y fugas">
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Mes</span>
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value || currentMonthKey())}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Medio de pago</span>
-              <select
-                value={paymentFilter}
-                onChange={(event) => setPaymentFilter(event.target.value as PaymentFilter)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
-              >
-                <option value="all">Todos</option>
-                <option value="cash">Efectivo / débito</option>
-                <option value="credit_card">Tarjeta de crédito</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Tarjeta</span>
-              <select
-                value={selectedCardId}
-                onChange={(event) => setSelectedCardId(event.target.value)}
-                disabled={paymentFilter === 'cash'}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                <option value="all">Todas las tarjetas</option>
-                {creditCards.map((card) => (
-                  <option key={card.id} value={card.id}>
-                    {card.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
-            En MSI, el saldo usado de la tarjeta sube por el total de la compra; el presupuesto del mes se afecta por la mensualidad pendiente.
-          </p>
-        </Panel>
-
-        <section className="mt-8 mb-8">
-          <Panel title="Proyección de flujo" subtitle="Proyección estimada con base en ingresos y compromisos registrados">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo actual en cuentas</p>
-                <p className="mt-2 text-2xl font-black text-slate-950">{formatMoney(cashflowProjection.summary.currentBalance)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-emerald-50 p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Próximo ingreso</p>
-                <p className="mt-2 text-2xl font-black text-emerald-700">
-                  {cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
-                </p>
-                <p className="mt-1 text-xs font-bold text-emerald-700">
-                  {cashflowProjection.summary.nextIncomeDate ? formatDate(cashflowProjection.summary.nextIncomeDate) : 'Sin ingreso esperado'}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Compromisos a fin de mes</p>
-                <p className="mt-2 text-2xl font-black text-rose-600">{formatMoney(projectedCashOutflows)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Cierre estimado del mes</p>
-                <p className={`mt-2 text-2xl font-black ${cashflowProjection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
-                  {formatMoney(cashflowProjection.summary.projectedEndBalance)}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Saldo más bajo</p>
-                <p className={`mt-2 text-2xl font-black ${cashflowProjection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
-                  {formatMoney(cashflowProjection.summary.lowestBalance)}
-                </p>
-                <p className="mt-1 text-xs font-bold text-slate-500">{formatDate(cashflowProjection.summary.lowestBalanceDate)}</p>
-              </div>
-              <div className={`rounded-2xl border p-4 ${riskClasses[cashflowProjection.summary.riskLevel]}`}>
-                <p className="text-xs font-black uppercase tracking-widest">Nivel de riesgo</p>
-                <p className="mt-2 text-2xl font-black">{riskLabels[cashflowProjection.summary.riskLevel]}</p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="mt-8 grid gap-5 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Próximos eventos que afectan el flujo</h3>
-                <p className="text-sm font-semibold text-slate-500">Ordenados por fecha. Para ver el saldo después de cada día, entra al detalle.</p>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Dinero</p>
+                <p className="mt-2 text-3xl font-black text-white md:text-4xl">{formatMoney(metrics.disponible)}</p>
               </div>
-              <Link href="/flujo" className="text-sm font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
-                Ver detalle
+              <div className="hidden text-3xl font-black text-slate-500 md:block">-</div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Compromisos</p>
+                <p className="mt-2 text-3xl font-black text-rose-300 md:text-4xl">{formatMoney(commitmentsBeforeNextIncome)}</p>
+              </div>
+              <div className="hidden text-3xl font-black text-slate-500 md:block">=</div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Margen</p>
+                <p className={`mt-2 text-3xl font-black md:text-4xl ${nextIncomeHealth.margin >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {formatMoney(nextIncomeHealth.margin)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-7">
+              <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
+                <span>Margen</span>
+                <span>Compromisos</span>
+              </div>
+              <div className="flex h-4 overflow-hidden rounded-full bg-slate-800">
+                <div className="bg-emerald-500 transition-all" style={{ width: `${nextIncomeMarginWidth}%` }} />
+                <div className="bg-rose-400 transition-all" style={{ width: `${nextIncomeCommitmentWidth}%` }} />
+              </div>
+            </div>
+
+            {cashflowProjection.summary.nextIncomeDate ? (
+              <p className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-300">
+                Próximo ingreso: {formatMoney(cashflowProjection.summary.nextIncomeAmount || 0)} el {formatDate(cashflowProjection.summary.nextIncomeDate)}.
+              </p>
+            ) : (
+              <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm font-bold text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+                <span>Falta registrar tu próximo ingreso para estimar la quincena.</span>
+                <Link href="/ingresos" className="w-fit rounded-xl bg-amber-200 px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-950">
+                  Agregar ingreso
+                </Link>
+              </div>
+            )}
+
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              <MiniStat
+                label="Próximo ingreso"
+                value={cashflowProjection.summary.nextIncomeAmount ? formatMoney(cashflowProjection.summary.nextIncomeAmount) : '---'}
+                subvalue={cashflowProjection.summary.nextIncomeDate ? formatDate(cashflowProjection.summary.nextIncomeDate) : 'Sin ingreso esperado'}
+              />
+              <MiniStat
+                label="Saldo más bajo"
+                value={formatMoney(cashflowProjection.summary.lowestBalance)}
+                subvalue={formatDate(cashflowProjection.summary.lowestBalanceDate)}
+                valueClassName={cashflowProjection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}
+              />
+              <MiniStat
+                label="Cierre estimado"
+                value={formatMoney(cashflowProjection.summary.projectedEndBalance)}
+                subvalue="Fin de mes"
+                valueClassName={cashflowProjection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8">
+            <div className="flex h-full flex-col">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-600">Próxima acción</p>
+                  <h2 className="mt-2 text-2xl font-black text-slate-950">
+                    {nextImportantEvent?.title || 'Sin urgencias'}
+                  </h2>
+                </div>
+                <Calendar size={24} className="text-sky-500" />
+              </div>
+              {nextImportantEvent ? (
+                <>
+                  <p className="mt-3 text-sm font-bold text-slate-500">
+                    {formatDate(nextImportantEvent.date)} · {sourceLabel(nextImportantEvent.sourceType)} · {confidenceLabel(nextImportantEvent)} · {nextImportantEvent.affectsCash ? 'Afecta caja' : 'Informativo'}
+                  </p>
+                  <p className={`mt-5 text-4xl font-black ${eventAmountClass(nextImportantEvent)}`}>
+                    {nextImportantEvent.direction === 'inflow' ? '+' : '-'} {formatMoney(nextImportantEvent.amount)}
+                  </p>
+                  <p className="mt-4 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                    Acción sugerida: {nextImportantEvent.sourceType === 'income_schedule' ? 'confirma si ya recibiste este ingreso.' : 'revisa si este evento ya está cubierto o confirmado.'}
+                  </p>
+                </>
+              ) : (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                  No hay pagos o ingresos proyectados para mostrar. Agrega recordatorios, ingresos o recurrentes para ver acciones.
+                </div>
+              )}
+              <Link href={sourceActionHref(nextImportantEvent)} className="mt-auto pt-6 text-xs font-black uppercase tracking-widest text-sky-600 transition hover:text-slate-950">
+                Atender ahora
               </Link>
             </div>
+          </div>
+        </section>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-5">
-              {topCashflowEvents.map((event) => (
-                <div key={event.id} className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black leading-tight text-slate-900">{event.title}</p>
-                      <p className="mt-1 text-xs font-bold text-slate-400">{formatDate(event.date)}</p>
-                    </div>
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
-                      event.confidence === 'confirmed'
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : event.confidence === 'manual'
-                          ? 'bg-slate-100 text-slate-600'
-                          : 'bg-amber-50 text-amber-700'
-                    }`}>
-                      {confidenceLabels[event.confidence]}
-                    </span>
+        <section className="mt-6 grid gap-6 xl:grid-cols-3">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-600">Mejor tarjeta</p>
+                <h2 className="mt-2 text-3xl font-black text-slate-950">{bestAdvisorCard?.cardName || 'Sin datos'}</h2>
+              </div>
+              <CardIcon size={28} className="text-emerald-500" />
+            </div>
+            {bestAdvisorCard ? (
+              <>
+                <p className="mt-3 text-sm font-bold text-slate-500">
+                  {bestAdvisorCard.financingDaysIfUsedToday} días estimados de financiamiento.
+                </p>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Corte</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{formatDate(bestAdvisorCard.estimatedCutoffDate.toISOString())}</p>
                   </div>
-                  <p className={`mt-3 text-xl font-black ${event.direction === 'inflow' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {event.direction === 'inflow' ? '+' : '-'} {formatMoney(event.amount)}
-                  </p>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{formatDate(bestAdvisorCard.estimatedPaymentDueDate.toISOString())}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{(bestAdvisorCard.utilizationRate * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago estimado</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{formatMoney(bestAdvisorCard.nextPaymentAmount)}</p>
+                  </div>
                 </div>
-              ))}
+                <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+                  {bestAdvisorCard.reasons[0] || 'Mejor balance entre tiempo para pagar y uso de línea.'}
+                </p>
+              </>
+            ) : (
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                No hay tarjetas suficientes para recomendar. Registra tarjeta, corte y fecha de pago.
+              </div>
+            )}
+            <Link href="/tarjetas" className="mt-5 inline-flex text-xs font-black uppercase tracking-widest text-emerald-600 transition hover:text-slate-950">
+              Comparar tarjetas
+            </Link>
+          </div>
 
-              {topCashflowEvents.length === 0 && (
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-6 text-center text-sm font-bold text-slate-400 lg:col-span-5">
-                  No hay eventos de flujo proyectados para el resto del mes.
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8 xl:col-span-2">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-amber-600">Pagos y compromisos</p>
+                <h2 className="mt-2 text-4xl font-black text-slate-950">{formatMoney(pressureHealth.value)}</h2>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
+                  Tarjetas, MSI, deudas, recurrentes y alertas con monto. No es gasto nuevo: es dinero ya comprometido para cubrir este mes.
+                </p>
+              </div>
+              <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${healthToneClasses[pressureHealth.tone]}`}>
+                {pressureHealth.status}
+              </span>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {monthlyCommitmentBreakdown.length > 0 ? monthlyCommitmentBreakdown.map((item) => {
+                const width = pressureHealth.value > 0
+                  ? Math.min(100, Math.max(6, (item.amount / pressureHealth.value) * 100))
+                  : 0
+
+                return (
+                  <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-sm font-black text-slate-600">
+                      <span>{item.label}</span>
+                      <span>{formatMoney(item.amount)}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white">
+                      <div className={`h-full rounded-full ${item.className}`} style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                )
+              }) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500 md:col-span-2">
+                  No hay compromisos con monto para este mes. Revisa tarjetas, deudas, recurrentes o recordatorios si esperabas ver pagos aquí.
                 </div>
               )}
             </div>
+          </div>
+        </section>
 
-            <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500 md:flex-row md:items-center md:justify-between">
-              <span>Compras con tarjeta y MSI se muestran como compromisos; el efectivo baja cuando corresponde pagarlos.</span>
-              <Link href="/flujo" className="font-black uppercase tracking-widest text-slate-900 hover:text-emerald-600">
-                Ver detalle
+        <section className="mt-6 grid gap-6 xl:grid-cols-3">
+          <div className={`rounded-[2rem] border p-6 shadow-xl ${healthCardClasses[primaryAttention.tone]}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Atención principal</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">{primaryAttention.title}</h2>
+              </div>
+              <AlertTriangle size={24} className={primaryAttention.tone === 'rose' ? 'text-rose-500' : primaryAttention.tone === 'amber' ? 'text-amber-500' : 'text-slate-400'} />
+            </div>
+            <p className="mt-4 text-sm font-bold leading-relaxed text-slate-600">{primaryAttention.text}</p>
+            {leakHealth.progress > 0 && (
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
+                  <span>Indicador</span>
+                  <span>{leakHealth.progress.toFixed(0)}%</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-white">
+                  <div
+                    className={`h-full rounded-full ${primaryAttention.tone === 'rose' ? 'bg-rose-500' : primaryAttention.tone === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${Math.min(100, leakHealth.progress)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <Link href="/gastos" className="mt-5 inline-flex text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
+              Revisar gastos
+            </Link>
+          </div>
+
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8 xl:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-600">Próximos eventos</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">Plan de los siguientes días</h2>
+              </div>
+              <Link href="/flujo" className="w-fit rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800">
+                Ver planificación completa
               </Link>
             </div>
-          </Panel>
-        </section>
+            <div className="mt-6 divide-y divide-slate-100 overflow-hidden rounded-3xl border border-slate-100 bg-slate-50/70">
+              {upcomingEvents.length > 0 ? upcomingEvents.map((event) => {
+                const projectedPoint = projectedPointByDate.get(event.date)
 
-        <section className="mt-8 mb-8">
-          <div className="mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">1. Dinero real disponible</p>
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">Lo que puedes usar sin perder de vista compromisos</h2>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-6">
-              <KpiCard title="Disponible estimado tras compromisos" value={formatMoney(availableAfterPending)} valueClassName={availableAfterPending >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
-            </div>
-            <div className="lg:col-span-3">
-              <KpiCard title="Efectivo disponible" value={formatMoney(metrics.disponible)} valueClassName="text-slate-950" />
-            </div>
-            <div className="lg:col-span-3">
-              <KpiCard title="Salida real de efectivo" value={formatMoney(metrics.cashOutflow)} valueClassName="text-slate-950" subtitle="Pagos reales desde cuentas, incluidas tarjetas y deudas" />
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <div className="mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-600">2. Pagos que presionan</p>
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">Lo que exige atención antes de gastar más</h2>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-5">
-              <Panel title="Pagos próximos en efectivo" subtitle="Vencimientos que sí pueden bajar tu dinero disponible">
-                <div className="space-y-5">
-                  {consolidatedCommitments.length === 0 ? (
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-5 text-sm font-bold text-emerald-700">
-                      No hay pagos con monto pendiente en este bloque.
-                    </div>
-                  ) : (
-                    <>
-                      {commitmentGroups.overdue.length > 0 && (
-                        <div>
-                          <div className="mb-2 flex items-center justify-between">
-                            <p className="text-xs font-black uppercase tracking-widest text-rose-600">Vencidos con monto</p>
-                            <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-600">
-                              Revisar
-                            </span>
-                          </div>
-                          <div className="divide-y divide-rose-100 rounded-2xl border border-rose-100 bg-rose-50/40 px-4">
-                            {commitmentGroups.overdue.map((item) => (
-                              <div key={item.id} className="flex items-center justify-between gap-4 py-3">
-                                <div>
-                                  <p className="font-bold text-slate-900">{item.title}</p>
-                                  <p className="text-sm text-slate-500">
-                                    Venció el {formatDate(item.dueDate)} · {item.meta}
-                                  </p>
-                                </div>
-                                <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <p className="mb-2 text-xs font-black uppercase tracking-widest text-slate-400">Próximos con monto</p>
-                        {commitmentGroups.upcoming.length === 0 ? (
-                          <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-5 text-sm font-bold text-slate-500">
-                            No hay pagos futuros con monto registrado.
-                          </div>
-                        ) : (
-                          <div className="divide-y divide-slate-100">
-                            {commitmentGroups.upcoming.map((item) => (
-                              <div key={item.id} className="flex items-center justify-between gap-4 py-4">
-                                <div>
-                                  <p className="font-bold text-slate-900">{item.title}</p>
-                                  <p className="text-sm text-slate-500">
-                                    {formatDate(item.dueDate)} · {item.meta}
-                                  </p>
-                                </div>
-                                <p className={`font-black ${toneClasses[item.tone]}`}>{formatMoney(item.amount)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {informationalReminders.length > 0 && (
-                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Alertas sin monto</p>
-                        <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          No afectan caja
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        {informationalReminders.map((reminder) => (
-                          <div key={reminder.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
-                            <div>
-                              <p className="text-sm font-black text-slate-800">{reminder.title}</p>
-                              <p className="text-xs font-bold text-slate-400">{formatDate(reminder.due_date)}</p>
-                            </div>
-                            <span className="text-xs font-black uppercase tracking-widest text-slate-400">Info</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Panel>
-            </div>
-
-            <div className="lg:col-span-4">
-              <Panel title="Próximos pagos TDC" subtitle="Tarjetas que requieren atención este ciclo">
-            {upcomingCardPayments.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay tarjetas con pago pendiente por ahora.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {upcomingCardPayments.map((card) => {
-                  const paymentDays = daysUntilDate(card.dueDate)
-                  const cutoffDays = daysUntilDate(card.cutoffDate)
-                  const noInterestAmount = Number(card.no_interest_payment || 0)
-                  const minimumAmount = Number(card.minimum_payment || 0)
-
-                  return (
-                    <div key={card.id} className="rounded-2xl border border-slate-100 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-bold text-slate-900">{card.name}</p>
-                          <p className="text-sm text-slate-500">
-                            Corte {formatDate(card.cutoffDate)} · Pago {formatDate(card.dueDate)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-black text-amber-600">{formatMoney(noInterestAmount || minimumAmount)}</p>
-                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                            {noInterestAmount > 0 ? 'No intereses' : 'Pago mínimo'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-slate-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al corte</p>
-                          <p className="mt-1 text-lg font-black text-slate-900">{cutoffDays}</p>
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Días al pago</p>
-                          <p className={`mt-1 text-lg font-black ${paymentDays <= 3 ? 'text-rose-600' : 'text-slate-900'}`}>{paymentDays}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Link href="/tarjetas" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
-                  Revisar tarjetas
-                </Link>
-              </div>
-            )}
-              </Panel>
-            </div>
-
-            <div className="lg:col-span-3 space-y-6">
-              <Panel title="MSI en tarjetas" subtitle="Desglose informativo incluido en saldos TDC">
-                {cardInstallmentBreakdown.length === 0 ? (
-                  <div className="py-8 text-center text-slate-400 font-medium italic">
-                    No hay MSI pendientes este mes.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {cardInstallmentBreakdown.map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-sky-100 bg-sky-50/40 p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-black text-slate-900">{item.title}</p>
-                            <p className="text-xs font-bold text-slate-500">
-                              {item.isOverdue ? 'Ciclo vencido' : formatDate(item.dueDate)} · {item.meta}
-                            </p>
-                          </div>
-                          <p className="text-sm font-black text-sky-600">{formatMoney(item.amount)}</p>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
-                      Estos MSI explican parte del saldo de tus tarjetas; no son una salida adicional fuera del pago de tarjeta.
-                    </div>
-                  </div>
-                )}
-              </Panel>
-              <KpiCard title="Pagos a tarjetas" value={formatMoney(metrics.cardPayments)} valueClassName="text-sky-600" subtitle="No cuenta como gasto por categoría" />
-              <KpiCard title="Pagos de deuda" value={formatMoney(metrics.debtPayments)} valueClassName="text-amber-600" subtitle="Salida real sin categoría de gasto" />
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <div className="mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-600">3. Riesgo financiero</p>
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">Deuda, presupuesto y margen en una sola lectura</h2>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-4 space-y-6">
-              <KpiCard title="Deuda total" value={formatMoney(metrics.deuda)} valueClassName="text-rose-600" />
-              <KpiCard title="Presupuesto del mes" value={formatMoney(metrics.totalBudget)} valueClassName="text-slate-950" />
-              <KpiCard title="Gastado contra presupuesto" value={formatMoney(metrics.totalBudgetSpent)} valueClassName="text-rose-600" />
-              <KpiCard
-                title="Margen presupuestal"
-                value={formatMoney(metrics.totalBudgetRemaining)}
-                subtitle={metrics.overBudgetCount > 0 ? `${metrics.overBudgetCount} categoría(s) excedida(s)` : 'Sin categorías excedidas'}
-                valueClassName={metrics.totalBudgetRemaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}
-              />
-            </div>
-
-            <div className="lg:col-span-8">
-              <Panel title="Presupuesto del mes" subtitle="Categorías con límite activo, ordenadas por presión">
-            {budgetRows.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay presupuestos definidos este mes.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(budgetHighlights.length > 0 ? budgetHighlights : budgetRows.slice(0, 5)).map((row) => (
-                  <div key={row.id} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <div>
-                        <p className="font-bold text-slate-900">{row.categoryName}</p>
-                        <p className="text-sm text-slate-500">
-                          {formatMoney(row.spent)} de {formatMoney(row.budgetAmount)}
-                        </p>
-                      </div>
-                      <p className={`font-black ${row.remaining >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {row.remaining >= 0 ? formatMoney(row.remaining) : `-${formatMoney(Math.abs(row.remaining))}`}
-                      </p>
-                    </div>
-                    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className={`h-full rounded-full ${row.progress < 70 ? 'bg-emerald-500' : row.progress < 100 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                        style={{ width: `${Math.min(row.progress, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                <Link href="/presupuesto" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">
-                  Abrir control presupuestal
-                </Link>
-              </div>
-            )}
-              </Panel>
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <div className="mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-sky-600">4. Dónde se va el dinero</p>
-            <h2 className="text-2xl font-black tracking-tight text-slate-950">Gasto generado, flujo y categorías principales</h2>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-4 space-y-6">
-              <KpiCard title="Gasto generado del mes" value={formatMoney(metrics.generatedExpense)} valueClassName="text-rose-600" subtitle="Efectivo/debito + compras con tarjeta" />
-              <Panel title="Top categorías / fugas" subtitle="Gasto generado por categoría del mes">
-                <div className="min-w-0 h-80 w-full flex flex-col items-center">
-                  {chartsReady ? (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={categoryChartData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {categoryChartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={['#0f172a', '#334155', '#475569', '#64748b', '#94a3b8'][index % 5]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex h-[200px] w-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
-                      Cargando gráfico...
-                    </div>
-                  )}
-                  <div className="w-full space-y-2 mt-4">
-                    {categoryChartData.slice(0, 3).map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-xs font-bold">
-                        <span className="text-slate-500 uppercase tracking-tighter">{item.name}</span>
-                        <span className="text-slate-950">{formatMoney(item.value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Panel>
-            </div>
-
-            <div className="lg:col-span-8">
-              <Panel title="Flujo del mes" subtitle="Compara ingreso, gasto generado y salida real de efectivo">
-                <div className="min-w-0 h-80 w-full pt-4">
-                  {chartsReady ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={flowChartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 'bold' }} />
-                        <YAxis hide />
-                        <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                        <Bar dataKey="value" radius={[12, 12, 12, 12]} barSize={60}>
-                          {flowChartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex h-full items-center justify-center rounded-3xl border border-slate-100 bg-slate-50 text-sm font-medium text-slate-400">
-                      Cargando gráfico...
-                    </div>
-                  )}
-                </div>
-              </Panel>
-            </div>
-          </div>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-2 mb-8">
-          <Panel title="MSI pendientes" subtitle="Mensualidades activas que ya toca procesar">
-            {monthInstallmentPlans.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay MSI pendientes por procesar.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {monthInstallmentPlans.map((plan) => {
-                  const displayState = getInstallmentDisplayState(plan)
-
-                  return (
-                    <div key={plan.id} className="flex items-center justify-between py-4">
-                      <div>
-                        <p className="font-bold text-slate-900">{plan.description}</p>
-                        <p className="text-sm text-slate-500">
-                          Próxima {displayState.currentInstallmentNumber}/{plan.total_months} · Día {plan.charge_day}
-                        </p>
-                      </div>
-                      <p className="font-black text-sky-600">{formatMoney(Number(plan.monthly_amount || 0))}</p>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Recurrentes pendientes" subtitle="Cargos automáticos vencidos o listos para procesar">
-            {dueRecurringCharges.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 font-medium italic">
-                No hay recurrentes pendientes por procesar.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {dueRecurringCharges.map((charge) => (
-                  <div key={charge.id} className="flex items-center justify-between py-4">
+                return (
+                  <div key={event.id} className="grid gap-3 p-4 sm:grid-cols-[8rem_1fr_auto] sm:items-center">
                     <div>
-                      <p className="font-bold text-slate-900">{charge.name}</p>
-                      <p className="text-sm text-slate-500">
-                        {charge.next_charge_date ? formatDate(charge.next_charge_date) : 'Sin fecha'} · {charge.payment_method_type === 'credit_card' ? 'Tarjeta' : 'Cuenta'}
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-400">{formatDate(event.date)}</p>
+                      <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-sky-600">{sourceLabel(event.sourceType)}</p>
+                    </div>
+                    <div>
+                      <p className="text-base font-black text-slate-950">{event.title}</p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        {confidenceLabel(event)}
+                        {' · '}
+                        {event.affectsCash ? 'Afecta caja' : 'Informativo'}
+                        {projectedPoint ? ` · Saldo después: ${formatMoney(projectedPoint.endingBalance)}` : ''}
                       </p>
                     </div>
-                    <p className="font-black text-violet-600">{formatMoney(getPendingRecurringAmount(charge))}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        {/* Acceso a Módulos */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          {[
-            { label: 'Cuentas', href: '/cuentas', icon: Wallet },
-            { label: 'Ingresos', href: '/ingresos', icon: ArrowDownRight },
-            { label: 'Tarjetas', href: '/tarjetas', icon: CardIcon },
-            { label: 'Deudas', href: '/deudas', icon: ArrowUpRight },
-            { label: 'Recurrentes', href: '/recurrentes', icon: Calendar },
-            { label: 'Presupuesto', href: '/presupuesto', icon: ArrowRight },
-          ].map((link) => (
-            <Link key={link.label} href={link.href} className="group flex flex-col items-center justify-center p-6 bg-white border border-slate-100 rounded-[2rem] hover:bg-slate-950 hover:text-white transition-all shadow-sm">
-              <link.icon className="mb-3 text-slate-400 group-hover:text-emerald-400 transition-colors" size={32} />
-              <span className="font-black uppercase tracking-tighter text-sm">{link.label}</span>
-            </Link>
-          ))}
-        </div>
-
-        {/* Secciones de Datos */}
-        <div className="grid gap-6 xl:grid-cols-12">
-          <div className="xl:col-span-6">
-            <Panel title="Últimos Movimientos" subtitle="Actividad de carga y abono actual">
-              <div className="space-y-4">
-                {recentTransactions.map((tx) => (
-                  <div key={tx.id} className="group flex items-center justify-between p-4 rounded-3xl border border-slate-50 bg-white hover:border-slate-200 hover:shadow-lg transition-all">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-2xl ${tx.transaction_type === 'income' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-900 font-black'}`}>
-                        {tx.transaction_type === 'income' ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
-                      </div>
-                      <div>
-                        <p className="font-black text-slate-950 leading-tight">{tx.description || 'Sin concepto'}</p>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
-                          {friendlyTransactionType(tx.transaction_type)} · {formatDate(tx.transaction_date)}
-                        </p>
-                      </div>
-                    </div>
-                    <p className={`font-black text-lg ${tx.transaction_type === 'income' ? 'text-emerald-600' : 'text-slate-950'}`}>
-                      {tx.transaction_type === 'income' ? '+' : '-'} {formatMoney(tx.amount)}
+                    <p className={`text-lg font-black sm:text-right ${eventAmountClass(event)}`}>
+                      {event.direction === 'inflow' ? '+' : event.direction === 'outflow' ? '-' : ''} {formatMoney(event.amount)}
                     </p>
                   </div>
-                ))}
-                <Link href="/movimientos" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">Ver todo el historial</Link>
-              </div>
-            </Panel>
+                )
+              }) : (
+                <div className="p-5 text-sm font-bold text-slate-500">
+                  No hay eventos proyectados. Agrega ingresos, alertas o recurrentes para ver una ruta de flujo.
+                </div>
+              )}
+            </div>
           </div>
-
-          <div className="xl:col-span-6">
-            <Panel title="Recordatorios de Pago" subtitle="Eventos y vencimientos próximos">
-              <div className="space-y-4">
-                {reminders.map((rem) => (
-                  <div key={rem.id} className="flex items-center justify-between p-5 rounded-3xl border-2 border-slate-100 bg-white shadow-sm">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-950 flex items-center justify-center text-white">
-                        <span className="text-lg font-black">{new Date(rem.due_date).getDate()}</span>
-                      </div>
-                      <div>
-                        <p className="font-black text-slate-950">{rem.title}</p>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{formatDate(rem.due_date)}</p>
-                      </div>
-                    </div>
-                    {rem.amount && <p className="font-black text-slate-950">{formatMoney(rem.amount)}</p>}
-                  </div>
-                ))}
-                {reminders.length === 0 && <p className="text-center py-12 text-slate-400 font-bold italic">Todo al día por ahora ✨</p>}
-                <Link href="/recordatorios" className="block text-center py-4 text-sm font-black text-slate-400 uppercase tracking-widest hover:text-slate-950 transition">Gestionar alertas</Link>
-              </div>
-            </Panel>
-          </div>
-        </div>
+        </section>
       </section>
     </main>
   )
+
 }
 
 function LoginScreen() {

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import {
@@ -15,7 +16,9 @@ import {
   createInstallmentPlan,
   validateInstallmentDraft,
 } from '@/lib/credit-card-installments'
-import { ArrowLeft } from 'lucide-react'
+import { adviseCreditCards } from '@/lib/credit-card-advisor'
+import { formatDate, formatMoney } from '@/lib/utils'
+import { ArrowLeft, CheckCircle2, CreditCard as CardIcon, Info, Sparkles } from 'lucide-react'
 
 type Account = {
   id: string
@@ -35,6 +38,10 @@ type CreditCard = {
   account_id: string
   statement_cutoff_day: number
   payment_due_day: number
+  credit_limit: number
+  current_balance: number
+  minimum_payment: number
+  no_interest_payment: number
 }
 
 type Debt = {
@@ -51,8 +58,55 @@ type TransactionType =
   | 'credit_card_refund'
   | 'debt_payment'
 
+const transactionTypeLabels: Record<TransactionType, { title: string; description: string }> = {
+  income: {
+    title: 'Registrar ingreso',
+    description: 'Guarda una entrada real de dinero en una cuenta.',
+  },
+  expense: {
+    title: 'Registrar gasto',
+    description: 'Guarda una salida real de efectivo, débito o cuenta propia.',
+  },
+  transfer: {
+    title: 'Registrar transferencia',
+    description: 'Mueve dinero entre cuentas sin duplicar gasto.',
+  },
+  credit_card_purchase: {
+    title: 'Registrar compra con tarjeta',
+    description: 'Guarda una compra normal o MSI en una tarjeta.',
+  },
+  credit_card_payment: {
+    title: 'Registrar pago de tarjeta',
+    description: 'Registra el pago real desde una cuenta hacia una TDC.',
+  },
+  credit_card_refund: {
+    title: 'Registrar reembolso de tarjeta',
+    description: 'Disminuye saldo usado de una tarjeta por un reembolso.',
+  },
+  debt_payment: {
+    title: 'Registrar pago de deuda',
+    description: 'Guarda un pago real hacia préstamo, deuda o financiamiento.',
+  },
+}
+
+function isTransactionType(value: string | null): value is TransactionType {
+  return [
+    'income',
+    'expense',
+    'transfer',
+    'credit_card_purchase',
+    'credit_card_payment',
+    'credit_card_refund',
+    'debt_payment',
+  ].includes(value || '')
+}
+
 export default function NuevoMovimientoPage() {
   const supabase = createClient()
+  const searchParams = useSearchParams()
+  const requestedType = searchParams.get('type')
+  const initialType: TransactionType = isTransactionType(requestedType) ? requestedType : 'expense'
+  const initialIsMsi = searchParams.get('msi') === '1'
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -63,7 +117,7 @@ export default function NuevoMovimientoPage() {
   const [creditCards, setCreditCards] = useState<CreditCard[]>([])
   const [debts, setDebts] = useState<Debt[]>([])
 
-  const [transactionType, setTransactionType] = useState<TransactionType>('expense')
+  const [transactionType, setTransactionType] = useState<TransactionType>(initialType)
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [transactionDate, setTransactionDate] = useState(() => {
@@ -78,7 +132,7 @@ export default function NuevoMovimientoPage() {
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
-  const [isMsi, setIsMsi] = useState(false)
+  const [isMsi, setIsMsi] = useState(initialIsMsi && initialType === 'credit_card_purchase')
   const [msiTimingMode, setMsiTimingMode] = useState<'new' | 'historical'>('new')
   const [msiCaptureMode, setMsiCaptureMode] = useState<'total' | 'monthly'>('total')
   const [installmentDescription, setInstallmentDescription] = useState('')
@@ -101,7 +155,11 @@ export default function NuevoMovimientoPage() {
       await Promise.all([
         supabase.from('accounts').select('id, name, account_type').eq('is_active', true).order('name'),
         supabase.from('categories').select('id, name, category_type').eq('is_active', true).order('name'),
-        supabase.from('credit_cards').select('id, name, account_id, statement_cutoff_day, payment_due_day').eq('is_active', true).order('name'),
+        supabase
+          .from('credit_cards')
+          .select('id, name, account_id, statement_cutoff_day, payment_due_day, credit_limit, current_balance, minimum_payment, no_interest_payment')
+          .eq('is_active', true)
+          .order('name'),
         supabase.from('debts').select('id, name').neq('status', 'paid').order('name'),
       ])
 
@@ -161,6 +219,57 @@ export default function NuevoMovimientoPage() {
     () => creditCards.find((card) => card.id === relatedCreditCardId) || null,
     [creditCards, relatedCreditCardId]
   )
+
+  const parsedAmountForPreview = useMemo(() => {
+    if (transactionType === 'credit_card_purchase' && isMsi) return installmentTotalAmountPreview
+    return Number(amount || 0)
+  }, [amount, installmentTotalAmountPreview, isMsi, transactionType])
+
+  const cardAdvisorResults = useMemo(
+    () => adviseCreditCards(creditCards, transactionDate ? new Date(transactionDate) : new Date()),
+    [creditCards, transactionDate]
+  )
+
+  const bestAdvisorCard = cardAdvisorResults[0]
+  const selectedAdvisorCard = useMemo(
+    () => cardAdvisorResults.find((card) => card.cardId === relatedCreditCardId) || null,
+    [cardAdvisorResults, relatedCreditCardId]
+  )
+
+  const selectedCardAfterPurchase = useMemo(() => {
+    if (!selectedCreditCard) return null
+    const currentBalance = Number(selectedCreditCard.current_balance || 0)
+    const creditLimit = Number(selectedCreditCard.credit_limit || 0)
+    const nextBalance = currentBalance + Math.max(0, parsedAmountForPreview)
+
+    return {
+      currentBalance,
+      nextBalance,
+      currentUtilization: creditLimit > 0 ? currentBalance / creditLimit : 0,
+      nextUtilization: creditLimit > 0 ? nextBalance / creditLimit : 0,
+      availableAfter: Math.max(0, creditLimit - nextBalance),
+      noInterestAfter: Number(selectedCreditCard.no_interest_payment || 0) + Math.max(0, parsedAmountForPreview),
+    }
+  }, [parsedAmountForPreview, selectedCreditCard])
+
+  const suggestedPaymentOptions = useMemo(() => {
+    if (!selectedCreditCard) return []
+
+    return [
+      {
+        label: 'Mínimo',
+        value: Number(selectedCreditCard.minimum_payment || 0),
+      },
+      {
+        label: 'No generar intereses',
+        value: Number(selectedCreditCard.no_interest_payment || selectedCreditCard.current_balance || 0),
+      },
+      {
+        label: 'Saldo usado',
+        value: Number(selectedCreditCard.current_balance || 0),
+      },
+    ].filter((option) => option.value > 0)
+  }, [selectedCreditCard])
 
   const firstMsiPaymentDate = useMemo(() => {
     if (!selectedCreditCard || !transactionDate) return ''
@@ -407,22 +516,47 @@ export default function NuevoMovimientoPage() {
     )
   }
 
+  const currentTypeLabel = transactionTypeLabels[transactionType]
+
   return (
-    <main className="min-h-screen bg-slate-100 pb-20">
-      <section className="bg-slate-950 text-white">
+    <main className="min-h-screen bg-[#eef3f8] pb-28">
+      <section className="border-b border-slate-200 bg-white">
         <div className="max-w-3xl mx-auto px-6 py-12">
-          <nav className="flex items-center gap-2 text-slate-400 text-sm mb-4">
-            <Link href="/" className="hover:text-white transition flex items-center gap-1">
+          <nav className="flex items-center gap-2 text-slate-500 text-sm mb-4">
+            <Link href="/" className="hover:text-slate-950 transition flex items-center gap-1">
               <ArrowLeft size={14} /> Volver al Inicio
             </Link>
           </nav>
-          <h1 className="text-5xl font-extrabold tracking-tight uppercase tracking-tighter">Nuevo Movimiento</h1>
-          <p className="text-slate-400 mt-3 text-lg">Registra tus ingresos, gastos o abonos.</p>
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">Acción rápida</p>
+          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">{currentTypeLabel.title}</h1>
+          <p className="text-slate-500 mt-3 text-lg font-semibold">{currentTypeLabel.description}</p>
         </div>
       </section>
 
       <section className="max-w-3xl mx-auto px-6 -mt-8">
-        <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-2xl space-y-8">
+        <form onSubmit={handleSubmit} className="bg-white rounded-[2.5rem] border border-slate-200 p-6 shadow-2xl shadow-slate-900/10 space-y-8 md:p-8">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1. Captura</p>
+              <p className="mt-1 text-sm font-black text-slate-950">Monto y fecha</p>
+            </div>
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2. Clasifica</p>
+              <p className="mt-1 text-sm font-black text-slate-950">Cuenta, tarjeta o deuda</p>
+            </div>
+            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3. Confirma</p>
+              <p className="mt-1 text-sm font-black text-slate-950">Revisa el impacto</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm font-bold text-slate-700">
+            <div className="flex items-start gap-3">
+              <Info size={18} className="mt-0.5 shrink-0 text-sky-600" />
+              <p>{currentTypeLabel.description} Puedes cambiar el tipo si abriste esta acción por error.</p>
+            </div>
+          </div>
+
           <div className="grid gap-6 md:grid-cols-2">
             <div className="col-span-2 md:col-span-1">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Tipo de movimiento</label>
@@ -484,6 +618,21 @@ export default function NuevoMovimientoPage() {
 
             {(transactionType === 'income') && (
               <>
+                <div className="col-span-2 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-5">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 size={20} className="mt-0.5 text-emerald-600" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Ingreso recibido</p>
+                      <h2 className="mt-1 text-xl font-black text-slate-950">
+                        Esto sí aumenta el saldo real de la cuenta destino.
+                      </h2>
+                      <p className="mt-1 text-sm font-bold text-slate-600">
+                        Si venía de ingresos programados, registra aquí el movimiento real y después confirma/avanza el ingreso esperado en Ingresos.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="col-span-2 md:col-span-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Cuenta destino</label>
                   <select
@@ -631,6 +780,65 @@ export default function NuevoMovimientoPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="col-span-2 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={18} className="text-emerald-600" />
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Asesor de compra</p>
+                      </div>
+                      <h2 className="mt-2 text-xl font-black text-slate-950">
+                        {bestAdvisorCard ? `${bestAdvisorCard.cardName} parece la mejor opción` : 'Registra tarjetas para recomendar mejor opción'}
+                      </h2>
+                      <p className="mt-1 text-sm font-bold text-slate-600">
+                        {bestAdvisorCard
+                          ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar. ${bestAdvisorCard.reasons[0] || ''}`
+                          : 'La recomendación considera corte, fecha de pago, uso de línea y disponible.'}
+                      </p>
+                    </div>
+                    {bestAdvisorCard && relatedCreditCardId !== bestAdvisorCard.cardId ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCreditCardChange(bestAdvisorCard.cardId)}
+                        className="w-fit rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-emerald-700"
+                      >
+                        Usar recomendada
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl bg-white p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Corte</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">
+                        {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedCutoffDate.toISOString()) : 'Selecciona tarjeta'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">
+                        {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedPaymentDueDate.toISOString()) : 'Selecciona tarjeta'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso después</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">
+                        {selectedCardAfterPurchase ? `${(selectedCardAfterPurchase.nextUtilization * 100).toFixed(1)}%` : 'Sin monto'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Disponible después</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">
+                        {selectedCardAfterPurchase ? formatMoney(selectedCardAfterPurchase.availableAfter) : 'Sin monto'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-xs font-bold text-slate-600">
+                    Esta compra no reduce tu efectivo hoy, pero aumenta el saldo de tu tarjeta y tus compromisos futuros.
+                  </p>
                 </div>
 
                 <div className="col-span-2">
@@ -897,6 +1105,40 @@ export default function NuevoMovimientoPage() {
                     ))}
                   </select>
                 </div>
+
+                <div className="col-span-2 rounded-[1.5rem] border border-indigo-100 bg-indigo-50/70 p-5">
+                  <div className="flex items-start gap-3">
+                    <CardIcon size={20} className="mt-0.5 text-indigo-600" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">Pago de tarjeta</p>
+                      <h2 className="mt-1 text-xl font-black text-slate-950">
+                        Este pago baja tu efectivo y reduce saldo usado de la tarjeta.
+                      </h2>
+                      <p className="mt-1 text-sm font-bold text-slate-600">
+                        Usa un monto sugerido o captura uno distinto arriba.
+                      </p>
+                    </div>
+                  </div>
+                  {suggestedPaymentOptions.length > 0 ? (
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {suggestedPaymentOptions.map((option) => (
+                        <button
+                          type="button"
+                          key={option.label}
+                          onClick={() => setAmount(option.value.toFixed(2))}
+                          className="rounded-2xl border border-white bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                        >
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{option.label}</p>
+                          <p className="mt-1 text-lg font-black text-slate-950">{formatMoney(option.value)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-slate-500">
+                      Selecciona una tarjeta para ver montos sugeridos.
+                    </p>
+                  )}
+                </div>
               </>
             )}
 
@@ -921,6 +1163,21 @@ export default function NuevoMovimientoPage() {
 
             {(transactionType === 'debt_payment') && (
               <>
+                <div className="col-span-2 rounded-[1.5rem] border border-amber-100 bg-amber-50/70 p-5">
+                  <div className="flex items-start gap-3">
+                    <Info size={20} className="mt-0.5 text-amber-600" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-700">Pago de deuda</p>
+                      <h2 className="mt-1 text-xl font-black text-slate-950">
+                        Este pago baja tu efectivo y reduce el adeudo asociado.
+                      </h2>
+                      <p className="mt-1 text-sm font-bold text-slate-600">
+                        Si el pago salió de una cuenta externa, elige esa cuenta para no afectar tu efectivo personal.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="col-span-2 md:col-span-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Desde cuenta</label>
                   <select
@@ -984,6 +1241,40 @@ export default function NuevoMovimientoPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Ej. Súper, Pago de luz, Transferencia a Juan..."
               />
+            </div>
+
+            <div className="col-span-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Antes de guardar</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Efectivo</p>
+                  <p className="mt-1 text-sm font-black text-slate-950">
+                    {transactionType === 'credit_card_purchase' || transactionType === 'credit_card_refund'
+                      ? 'No baja hoy'
+                      : affectsBalance
+                        ? 'Sí afecta'
+                        : 'No afecta'}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tarjeta/deuda</p>
+                  <p className="mt-1 text-sm font-black text-slate-950">
+                    {transactionType === 'credit_card_purchase'
+                      ? 'Sube saldo usado'
+                      : transactionType === 'credit_card_payment'
+                        ? 'Baja saldo usado'
+                        : transactionType === 'debt_payment'
+                          ? 'Baja adeudo'
+                          : 'Sin impacto directo'}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Monto</p>
+                  <p className="mt-1 text-sm font-black text-slate-950">
+                    {parsedAmountForPreview > 0 ? formatMoney(parsedAmountForPreview) : 'Pendiente'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

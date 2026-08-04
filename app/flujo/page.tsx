@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { MainNavigation } from '@/components/ui/MainNavigation'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
 import {
   buildSmartPurchaseAdvisor,
@@ -349,24 +350,25 @@ export default function FlujoPage() {
   }
 
   return (
-    <main className="finance-shell min-h-screen pb-12">
-      <section className="finance-surface-dark text-white">
+    <main className="min-h-screen bg-[#eef3f8] pb-28 md:pb-12">
+      <section className="border-b border-slate-200 bg-white">
         <div className="max-w-7xl mx-auto px-6 py-12">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <nav className="flex items-center gap-2 text-slate-400 text-sm mb-4">
-                <Link href="/" className="hover:text-white transition">Home</Link>
+              <nav className="flex items-center gap-2 text-slate-500 text-sm mb-4">
+                <Link href="/" className="hover:text-slate-950 transition">Home</Link>
                 <span>/</span>
-                <span className="text-slate-200 font-medium">Flujo</span>
+                <span className="text-slate-900 font-medium">Flujo</span>
               </nav>
-              <h1 className="text-5xl font-extrabold tracking-tight">Proyección de Flujo</h1>
-              <p className="text-slate-400 mt-3 text-lg max-w-2xl">
-                Proyección estimada con base en ingresos y compromisos registrados.
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-sky-600">Planificar</p>
+              <h1 className="mt-3 text-5xl font-black tracking-tight text-slate-950">Decidir antes de gastar</h1>
+              <p className="text-slate-500 mt-3 text-lg max-w-2xl font-semibold">
+                Proyección de flujo, timeline y simulador para decidir antes de gastar.
               </p>
             </div>
             <Link
               href="/"
-              className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 font-bold text-slate-200 hover:bg-slate-800 transition shadow-lg active:scale-95"
+              className="rounded-2xl border border-slate-200 bg-white px-6 py-4 font-bold text-slate-700 hover:bg-slate-50 transition shadow-lg active:scale-95"
             >
               Volver
             </Link>
@@ -375,11 +377,37 @@ export default function FlujoPage() {
       </section>
 
       <section className="max-w-7xl mx-auto px-6 -mt-8">
+        <MainNavigation />
+
         {message && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 shadow-sm">
             {message}
           </div>
         )}
+
+        <section className="mb-6 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Cómo cierro?</p>
+            <p className={`mt-2 text-2xl font-black ${projection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+              {formatMoney(projection.summary.projectedEndBalance)}
+            </p>
+            <p className="mt-1 text-sm font-bold text-slate-500">Saldo estimado al final del periodo.</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Qué día me presiona?</p>
+            <p className={`mt-2 text-2xl font-black ${projection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+              {formatMoney(projection.summary.lowestBalance)}
+            </p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{formatDate(projection.summary.lowestBalanceDate)}</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Puedo gastar?</p>
+            <p className={`mt-2 text-2xl font-black ${riskClasses[projection.summary.riskLevel]}`}>
+              {riskLabels[projection.summary.riskLevel]}
+            </p>
+            <p className="mt-1 text-sm font-bold text-slate-500">Usa el simulador para probar una decisión.</p>
+          </div>
+        </section>
 
         <div className="finance-card-strong mb-6 rounded-[2rem] p-3">
           <div className="grid gap-3 md:grid-cols-3">
