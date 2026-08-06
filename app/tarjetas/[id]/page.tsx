@@ -13,14 +13,17 @@ import {
   type CreditCardStatementPreview,
 } from '@/lib/credit-card-statements'
 import {
+  getInstallmentChargeDate,
   getPendingInstallmentAmount,
   getPendingInstallmentCount,
   getInstallmentDisplayState,
+  getInstallmentDueNumber,
   getOutstandingInstallmentCount,
   processInstallmentPlansForCard,
   syncInstallmentPlans,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
+import { getAppDate } from '@/lib/app-date'
 
 type CreditCard = {
   id: string
@@ -45,6 +48,7 @@ type Transaction = {
   transaction_date: string
   related_credit_card_id: string | null
   related_installment_id: string | null
+  installment_sequence?: number | null
   source_account_id: string | null
   status: string
   affects_balance: boolean | null
@@ -52,6 +56,30 @@ type Transaction = {
 }
 
 type InstallmentPlan = CreditCardInstallment
+
+type HistoryRow =
+  | {
+      kind: 'transaction'
+      id: string
+      transaction_type: string
+      amount: number
+      description: string | null
+      transaction_date: string
+      status: string
+      affects_balance: boolean | null
+    }
+  | {
+      kind: 'installment_info'
+      id: string
+      transaction_type: 'installment_info'
+      amount: number
+      description: string
+      transaction_date: string
+      status: string
+      affects_balance: false
+      installmentNumber: number
+      totalMonths: number
+    }
 
 type CreditCardStatementHistory = {
   id: string
@@ -188,6 +216,7 @@ export default function TarjetaDetallePage() {
       transaction_date,
       related_credit_card_id,
       related_installment_id,
+      installment_sequence,
       source_account_id,
       status,
       affects_balance,
@@ -303,6 +332,64 @@ export default function TarjetaDetallePage() {
   const pendingInstallmentCharges = useMemo(() => {
     return processableInstallments.reduce((acc, plan) => acc + getPendingInstallmentCount(plan), 0)
   }, [processableInstallments])
+
+  const historyRows = useMemo<HistoryRow[]>(() => {
+    const appDate = getAppDate()
+    const realInstallmentSequences = new Set<string>()
+    const realInstallmentPlansWithoutSequence = new Set<string>()
+
+    transactions.forEach((tx) => {
+      if (!tx.related_installment_id) return
+
+      if (Number.isFinite(Number(tx.installment_sequence))) {
+        realInstallmentSequences.add(`${tx.related_installment_id}:${Number(tx.installment_sequence)}`)
+      } else {
+        realInstallmentPlansWithoutSequence.add(tx.related_installment_id)
+      }
+    })
+
+    const transactionRows: HistoryRow[] = transactions.map((tx) => ({
+      kind: 'transaction',
+      id: tx.id,
+      transaction_type: tx.transaction_type,
+      amount: Number(tx.amount || 0),
+      description: tx.description,
+      transaction_date: tx.transaction_date,
+      status: tx.status,
+      affects_balance: tx.affects_balance,
+    }))
+
+    const installmentRows: HistoryRow[] = installments.flatMap((plan) => {
+      const dueNumber = getInstallmentDueNumber(plan, appDate)
+      if (dueNumber <= 0) return []
+
+      const rows: HistoryRow[] = []
+      for (let installmentNumber = 1; installmentNumber <= dueNumber; installmentNumber += 1) {
+        if (realInstallmentSequences.has(`${plan.id}:${installmentNumber}`)) continue
+        if (realInstallmentPlansWithoutSequence.has(plan.id)) continue
+
+        const chargeDate = getInstallmentChargeDate(plan, installmentNumber)
+        rows.push({
+          kind: 'installment_info',
+          id: `installment-info-${plan.id}-${installmentNumber}`,
+          transaction_type: 'installment_info',
+          amount: Number(plan.monthly_amount || 0),
+          description: `${plan.description} MSI ${installmentNumber}/${plan.total_months}`,
+          transaction_date: chargeDate.toISOString(),
+          status: installmentNumber <= Number(plan.last_processed_installment_number || 0) ? 'processed' : 'scheduled',
+          affects_balance: false,
+          installmentNumber,
+          totalMonths: Number(plan.total_months || 0),
+        })
+      }
+
+      return rows
+    })
+
+    return [...transactionRows, ...installmentRows].sort(
+      (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
+    )
+  }, [transactions, installments])
 
   const openStatementClose = () => {
     if (!card) return
@@ -1062,9 +1149,14 @@ export default function TarjetaDetallePage() {
 
         <div className="rounded-[2.5rem] border border-slate-100 bg-white shadow-xl overflow-hidden">
           <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-white">
-            <h2 className="text-2xl font-extrabold text-slate-900">Historial de movimientos</h2>
+            <div>
+              <h2 className="text-2xl font-extrabold text-slate-900">Historial de movimientos y MSI</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                Las mensualidades MSI pueden aparecer como informativas cuando ya están dentro del plan, pero no se generó un movimiento real para evitar duplicar saldo.
+              </p>
+            </div>
             <span className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600">
-              {transactions.length} registros
+              {historyRows.length} registros
             </span>
           </div>
 
@@ -1081,35 +1173,56 @@ export default function TarjetaDetallePage() {
               </thead>
 
               <tbody className="divide-y divide-slate-50">
-                {transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50/30 transition-colors group">
+                {historyRows.map((tx) => (
+                  <tr key={tx.id} className={`transition-colors group ${
+                    tx.kind === 'installment_info' ? 'bg-sky-50/30 hover:bg-sky-50/60' : 'hover:bg-slate-50/30'
+                  }`}>
                     <td className="px-8 py-5 text-sm text-slate-500 font-medium whitespace-nowrap">
                       {formatDateTime(tx.transaction_date)}
                     </td>
 
                     <td className="px-8 py-5 text-sm text-slate-900 font-bold">
-                      {tx.description || 'Sin descripción'}
+                      <div className="flex flex-col gap-1">
+                        <span>{tx.description || 'Sin descripción'}</span>
+                        {tx.kind === 'installment_info' ? (
+                          <span className="text-xs font-bold text-sky-700">
+                            Mensualidad del plan MSI · no mueve saldo porque el total ya está reflejado en la tarjeta.
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
 
                     <td className="px-8 py-5 text-sm font-medium text-slate-600">
-                      {friendlyTransactionType(tx.transaction_type)}
+                      {tx.kind === 'installment_info' ? 'MSI informativo' : friendlyTransactionType(tx.transaction_type)}
                     </td>
 
                     <td className={`px-8 py-5 text-sm font-black whitespace-nowrap ${tx.transaction_type === 'credit_card_payment' || tx.transaction_type === 'credit_card_refund' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                      {tx.transaction_type === 'credit_card_payment' || tx.transaction_type === 'credit_card_refund' ? '+ ' : '- '}
+                      {tx.transaction_type === 'credit_card_payment' || tx.transaction_type === 'credit_card_refund' ? '+ ' : tx.kind === 'installment_info' ? '' : '- '}
                       {formatMoney(Number(tx.amount || 0))}
                     </td>
 
                     <td className="px-8 py-5 text-sm">
-                      <span className={`inline-flex rounded-full px-3 py-1 font-bold text-[10px] uppercase tracking-wider ${tx.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-500'
+                      <div className="flex flex-wrap gap-2">
+                        <span className={`inline-flex rounded-full px-3 py-1 font-bold text-[10px] uppercase tracking-wider ${
+                          tx.kind === 'installment_info'
+                            ? 'bg-sky-50 text-sky-700 border border-sky-100'
+                            : tx.status === 'completed'
+                              ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                              : 'bg-slate-100 text-slate-500'
                         }`}>
-                        {tx.status}
-                      </span>
+                          {tx.kind === 'installment_info' ? 'Informativo' : tx.status}
+                        </span>
+                        {tx.kind === 'installment_info' ? (
+                          <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            No afecta saldo
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
 
-                {transactions.length === 0 && (
+                {historyRows.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-8 py-20 text-center">
                       <div className="text-4xl mb-3 opacity-20">🧾</div>
