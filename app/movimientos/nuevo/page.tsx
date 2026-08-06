@@ -107,6 +107,12 @@ export default function NuevoMovimientoPage() {
   const requestedType = searchParams.get('type')
   const initialType: TransactionType = isTransactionType(requestedType) ? requestedType : 'expense'
   const initialIsMsi = searchParams.get('msi') === '1'
+  const initialAccountId = searchParams.get('account') || ''
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo =
+    requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
+      ? requestedReturnTo
+      : '/'
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -126,8 +132,8 @@ export default function NuevoMovimientoPage() {
     return local.toISOString().slice(0, 16)
   })
 
-  const [sourceAccountId, setSourceAccountId] = useState('')
-  const [destinationAccountId, setDestinationAccountId] = useState('')
+  const [sourceAccountId, setSourceAccountId] = useState(initialType === 'income' ? '' : initialAccountId)
+  const [destinationAccountId, setDestinationAccountId] = useState(initialType === 'income' ? initialAccountId : '')
   const [categoryId, setCategoryId] = useState('')
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
@@ -294,8 +300,8 @@ export default function NuevoMovimientoPage() {
   const handleTypeChange = (value: TransactionType) => {
     setTransactionType(value)
     setMessage('')
-    setSourceAccountId('')
-    setDestinationAccountId('')
+    setSourceAccountId(value === 'income' ? '' : initialAccountId)
+    setDestinationAccountId(value === 'income' || value === 'transfer' ? initialAccountId : '')
     setCategoryId('')
     setRelatedCreditCardId('')
     setRelatedDebtId('')
@@ -501,7 +507,7 @@ export default function NuevoMovimientoPage() {
     setDescription('')
 
     setTimeout(() => {
-      window.location.href = '/'
+      window.location.href = returnTo
     }, 800)
   }
 

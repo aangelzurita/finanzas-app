@@ -7,10 +7,31 @@ export type StatementTransaction = {
   id: string
   transaction_type: string
   amount: number
+  description?: string | null
   transaction_date: string
   status?: string | null
   affects_balance?: boolean | null
+  affects_statement?: boolean | null
   related_installment_id?: string | null
+}
+
+export type CreditCardStatementItemRole =
+  | 'normal_purchase'
+  | 'msi_total_excluded'
+  | 'msi_charge'
+  | 'refund'
+  | 'payment'
+  | 'other'
+
+export type CreditCardStatementPreviewItem = {
+  transactionId: string
+  transactionType: string
+  transactionDate: string
+  description: string | null
+  amount: number
+  affectsBalance: boolean
+  affectsStatement: boolean
+  itemRole: CreditCardStatementItemRole
 }
 
 export type StatementCard = {
@@ -35,6 +56,10 @@ export type CreditCardStatementPreview = {
   estimatedNoInterestPayment: number
   suggestedMinimumPayment: number
   transactionCount: number
+  balanceAffectingTransactionCount: number
+  informationalTransactionCount: number
+  ignoredTransactionCount: number
+  statementItems: CreditCardStatementPreviewItem[]
 }
 
 function roundMoney(value: number) {
@@ -100,17 +125,21 @@ export function calculateCreditCardStatementPreview({
   transactions,
   installments,
   referenceDate = new Date(),
+  cutoffDate,
 }: {
   card: StatementCard
   transactions: StatementTransaction[]
   installments: CreditCardInstallment[]
   referenceDate?: string | Date
+  cutoffDate?: string | Date
 }): CreditCardStatementPreview {
-  const cutoffDate = getLastClosedCutoffDate(card.statement_cutoff_day, referenceDate)
-  const previousCutoffDate = getPreviousCutoffDate(cutoffDate, card.statement_cutoff_day)
+  const selectedCutoffDate = cutoffDate
+    ? parseDateOnly(cutoffDate)
+    : getLastClosedCutoffDate(card.statement_cutoff_day, referenceDate)
+  const previousCutoffDate = getPreviousCutoffDate(selectedCutoffDate, card.statement_cutoff_day)
   const periodStartDate = addDays(previousCutoffDate, 1)
-  const periodEndDate = cutoffDate
-  const paymentDueDate = getPaymentDueDateForCutoff(cutoffDate, card.payment_due_day)
+  const periodEndDate = selectedCutoffDate
+  const paymentDueDate = getPaymentDueDateForCutoff(selectedCutoffDate, card.payment_due_day)
 
   const msiPurchaseIds = new Set(
     installments
@@ -125,40 +154,75 @@ export function calculateCreditCardStatementPreview({
   let refunds = 0
   let payments = 0
   let transactionCount = 0
+  let balanceAffectingTransactionCount = 0
+  let informationalTransactionCount = 0
+  let ignoredTransactionCount = 0
+  const statementItems: CreditCardStatementPreviewItem[] = []
 
   transactions.forEach((tx) => {
-    if ((tx.status || 'completed') !== 'completed' || tx.affects_balance === false) return
+    if ((tx.status || 'completed') !== 'completed') {
+      ignoredTransactionCount += 1
+      return
+    }
+
+    if (tx.affects_statement === false) {
+      ignoredTransactionCount += 1
+      return
+    }
 
     const txDate = parseDateOnly(tx.transaction_date)
     if (!isInRange(txDate, periodStartDate, periodEndDate)) return
 
     transactionCount += 1
+    if (tx.affects_balance === false) {
+      informationalTransactionCount += 1
+    } else {
+      balanceAffectingTransactionCount += 1
+    }
+
     const amount = Number(tx.amount || 0)
+    const baseItem = {
+      transactionId: tx.id,
+      transactionType: tx.transaction_type,
+      transactionDate: tx.transaction_date,
+      description: tx.description ?? null,
+      amount: roundMoney(amount),
+      affectsBalance: tx.affects_balance !== false,
+      affectsStatement: true,
+    }
 
     if (tx.transaction_type === 'credit_card_purchase') {
       if (msiPurchaseIds.has(tx.id)) {
         msiPurchaseTotalsExcluded += amount
+        statementItems.push({ ...baseItem, itemRole: 'msi_total_excluded' })
         return
       }
 
       if (tx.related_installment_id) {
         msiMonthlyTransactionIds.add(tx.related_installment_id)
         msiChargesFromTransactions += amount
+        statementItems.push({ ...baseItem, itemRole: 'msi_charge' })
         return
       }
 
       normalPurchases += amount
+      statementItems.push({ ...baseItem, itemRole: 'normal_purchase' })
       return
     }
 
     if (tx.transaction_type === 'credit_card_refund') {
       refunds += amount
+      statementItems.push({ ...baseItem, itemRole: 'refund' })
       return
     }
 
     if (tx.transaction_type === 'credit_card_payment') {
       payments += amount
+      statementItems.push({ ...baseItem, itemRole: 'payment' })
+      return
     }
+
+    statementItems.push({ ...baseItem, itemRole: 'other' })
   })
 
   const scheduledMsiCharges = installments.reduce((acc, plan) => {
@@ -182,7 +246,7 @@ export function calculateCreditCardStatementPreview({
   )
 
   return {
-    cutoffDate: formatDateOnly(cutoffDate),
+    cutoffDate: formatDateOnly(selectedCutoffDate),
     previousCutoffDate: formatDateOnly(previousCutoffDate),
     periodStartDate: formatDateOnly(periodStartDate),
     periodEndDate: formatDateOnly(periodEndDate),
@@ -195,5 +259,9 @@ export function calculateCreditCardStatementPreview({
     estimatedNoInterestPayment,
     suggestedMinimumPayment: roundMoney(Number(card.minimum_payment || 0)),
     transactionCount,
+    balanceAffectingTransactionCount,
+    informationalTransactionCount,
+    ignoredTransactionCount,
+    statementItems,
   }
 }

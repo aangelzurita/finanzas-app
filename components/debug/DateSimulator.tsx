@@ -1,32 +1,37 @@
 'use client'
 
 import { useState } from 'react'
-import { getAppDate, getSimulatedDate, setSimulatedDate } from '@/lib/app-date'
+import { clearSimulatedDate, getAppDate, getSimulatedDate, setSimulatedDate } from '@/lib/app-date'
 
 export function DateSimulator() {
+  const appEnv = process.env.NEXT_PUBLIC_APP_ENV
+  const canSimulateDate = appEnv === 'local' || appEnv === 'staging'
   const initialSimulatedDate = getSimulatedDate()
   const [value, setValue] = useState(() => initialSimulatedDate?.slice(0, 10) || '')
   const [enabled, setEnabled] = useState(() => Boolean(initialSimulatedDate))
 
+  if (!canSimulateDate) return null
+
   const handleSave = () => {
     if (!value) return
-    const iso = new Date(`${value}T12:00:00`).toISOString()
-    setSimulatedDate(iso)
+    setSimulatedDate(value)
     window.location.reload()
   }
 
   const handleReset = () => {
-    setSimulatedDate(null)
+    clearSimulatedDate()
     window.location.reload()
   }
 
   const currentAppDate = getAppDate()
 
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="sticky top-0 z-50 border-b border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold text-amber-800">Modo simulación de fecha</p>
+          <p className="text-sm font-black uppercase tracking-widest text-amber-800">
+            {appEnv} · modo simulación de fecha
+          </p>
           <p className="text-xs text-amber-700 mt-1">
             Fecha activa de la app: {currentAppDate.toLocaleDateString('es-MX')}
           </p>

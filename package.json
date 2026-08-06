@@ -4,6 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "env:production": "node scripts/use-env.mjs production",
+    "env:staging": "node scripts/use-env.mjs staging",
+    "dev:production": "node scripts/use-env.mjs production && next dev",
+    "dev:staging": "node scripts/use-env.mjs staging && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

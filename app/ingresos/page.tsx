@@ -117,6 +117,11 @@ function isPastIncomeDate(value: string) {
   return parseDateOnly(value) < todayDateOnly()
 }
 
+function isMissingIncomeScheduleLinkColumn(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() || ''
+  return error?.code === 'PGRST204' || message.includes('related_income_schedule_id') || message.includes('schema cache')
+}
+
 function toForm(schedule: IncomeSchedule): IncomeForm {
   return {
     name: schedule.name,
@@ -361,7 +366,7 @@ export default function IngresosPage() {
     const { start, end } = dateOnlyRange(schedule.next_income_date)
     const { data: existingIncome, error: duplicateError } = await supabase
       .from('transactions')
-      .select('id')
+      .select('id, affects_balance')
       .eq('transaction_type', 'income')
       .eq('destination_account_id', schedule.account_id)
       .eq('amount', Number(schedule.amount || 0))
@@ -378,25 +383,70 @@ export default function IngresosPage() {
     }
 
     const alreadyRegistered = Boolean(existingIncome && existingIncome.length > 0)
+    const existingIncomeWithoutBalanceImpact = existingIncome?.find(
+      (income) => income.affects_balance === false
+    )
 
-    if (!alreadyRegistered) {
-      const { error: transactionError } = await supabase
+    if (existingIncomeWithoutBalanceImpact) {
+      const activationPayload = {
+        affects_balance: true,
+        status: 'completed',
+        category_id: schedule.category_id || null,
+        related_income_schedule_id: schedule.id,
+      }
+
+      let { error: activationError } = await supabase
         .from('transactions')
-        .insert({
-          user_id: userId,
-          transaction_type: 'income',
-          amount: Number(schedule.amount || 0),
-          transaction_date: toIncomeTransactionTimestamp(schedule.next_income_date),
-          description: schedule.name,
-          status: 'completed',
-          affects_balance: true,
-          affects_budget: false,
-          source_account_id: null,
-          destination_account_id: schedule.account_id,
-          category_id: schedule.category_id || null,
-          related_credit_card_id: null,
-          related_debt_id: null,
-        })
+        .update(activationPayload)
+        .eq('id', existingIncomeWithoutBalanceImpact.id)
+
+      if (activationError && isMissingIncomeScheduleLinkColumn(activationError)) {
+        const fallback = await supabase
+          .from('transactions')
+          .update({
+            affects_balance: true,
+            status: 'completed',
+            category_id: schedule.category_id || null,
+          })
+          .eq('id', existingIncomeWithoutBalanceImpact.id)
+        activationError = fallback.error
+      }
+
+      if (activationError) {
+        setMessage(`El ingreso ya existía, pero no se pudo activar su impacto en saldo: ${activationError.message}`)
+        setMarkingReceivedId(null)
+        return
+      }
+    } else if (!alreadyRegistered) {
+      const transactionPayload = {
+        user_id: userId,
+        transaction_type: 'income',
+        amount: Number(schedule.amount || 0),
+        transaction_date: toIncomeTransactionTimestamp(schedule.next_income_date),
+        description: schedule.name,
+        status: 'completed',
+        affects_balance: true,
+        affects_budget: false,
+        source_account_id: null,
+        destination_account_id: schedule.account_id,
+        category_id: schedule.category_id || null,
+        related_credit_card_id: null,
+        related_debt_id: null,
+        related_income_schedule_id: schedule.id,
+      }
+
+      let { error: transactionError } = await supabase
+        .from('transactions')
+        .insert(transactionPayload)
+
+      if (transactionError && isMissingIncomeScheduleLinkColumn(transactionError)) {
+        const fallbackPayload: Record<string, unknown> = { ...transactionPayload }
+        delete fallbackPayload.related_income_schedule_id
+        const fallback = await supabase
+          .from('transactions')
+          .insert(fallbackPayload)
+        transactionError = fallback.error
+      }
 
       if (transactionError) {
         setMessage(`No se pudo registrar el ingreso real: ${transactionError.message}`)
@@ -430,8 +480,10 @@ export default function IngresosPage() {
     )
     await loadData()
     setMessage(
-      alreadyRegistered
-        ? `El ingreso "${schedule.name}" ya tenía movimiento real para esa fecha. ${nextDate ? `Próxima fecha: ${formatDate(nextDate)}.` : 'Se desactivó la programación.'}`
+      existingIncomeWithoutBalanceImpact
+        ? `Ingreso "${schedule.name}" activado como movimiento real y saldo actualizado. ${nextDate ? `Próxima fecha: ${formatDate(nextDate)}.` : 'Se desactivó la programación.'}`
+        : alreadyRegistered
+          ? `El ingreso "${schedule.name}" ya tenía movimiento real para esa fecha. ${nextDate ? `Próxima fecha: ${formatDate(nextDate)}.` : 'Se desactivó la programación.'}`
         : nextDate
           ? `Ingreso "${schedule.name}" registrado como movimiento real. Próxima fecha: ${formatDate(nextDate)}.`
           : `Ingreso "${schedule.name}" registrado como movimiento real y desactivado.`

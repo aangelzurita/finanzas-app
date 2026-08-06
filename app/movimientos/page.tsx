@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney, formatDateTime, friendlyTransactionType } from '@/lib/utils'
 import {
@@ -32,15 +32,23 @@ type Account = {
   account_type: string
 }
 
+type CreditCardReference = {
+  id: string
+  account_id: string
+}
+
 export default function MovimientosPage() {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialAccountFilter = searchParams.get('account') || 'all'
 
   const [loading, setLoading] = useState(true)
   const [transactions, setTransactions] = useState<TransactionRow[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [creditCards, setCreditCards] = useState<CreditCardReference[]>([])
   const [typeFilter, setTypeFilter] = useState('all')
-  const [accountFilter, setAccountFilter] = useState('all')
+  const [accountFilter, setAccountFilter] = useState(initialAccountFilter)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [message, setMessage] = useState('')
@@ -64,7 +72,7 @@ export default function MovimientosPage() {
   }, [])
 
   const loadData = async () => {
-    const [{ data: txData }, { data: accountsData }] = await Promise.all([
+    const [{ data: txData }, { data: accountsData }, { data: cardsData }] = await Promise.all([
       supabase
         .from('transactions')
         .select(
@@ -76,10 +84,15 @@ export default function MovimientosPage() {
         .select('id, name, account_type')
         .eq('is_active', true)
         .order('name'),
+      supabase
+        .from('credit_cards')
+        .select('id, account_id')
+        .eq('is_active', true),
     ])
 
     setTransactions((txData as TransactionRow[]) ?? [])
     setAccounts((accountsData as Account[]) ?? [])
+    setCreditCards((cardsData as CreditCardReference[]) ?? [])
   }
 
   const accountMap = useMemo(() => {
@@ -91,6 +104,12 @@ export default function MovimientosPage() {
   }, [accounts])
 
   const filteredTransactions = useMemo(() => {
+    const selectedAccount = accounts.find((account) => account.id === accountFilter)
+    const selectedCardId =
+      selectedAccount?.account_type === 'credit_card'
+        ? creditCards.find((card) => card.account_id === accountFilter)?.id
+        : null
+
     return transactions.filter((tx) => {
       const matchesType =
         typeFilter === 'all' ? true : tx.transaction_type === typeFilter
@@ -99,7 +118,8 @@ export default function MovimientosPage() {
         accountFilter === 'all'
           ? true
           : tx.source_account_id === accountFilter ||
-          tx.destination_account_id === accountFilter
+          tx.destination_account_id === accountFilter ||
+          (selectedCardId ? tx.related_credit_card_id === selectedCardId : false)
 
       const txDate = tx.transaction_date.slice(0, 10)
       const matchesFrom = dateFrom ? txDate >= dateFrom : true
@@ -107,7 +127,7 @@ export default function MovimientosPage() {
 
       return matchesType && matchesAccount && matchesFrom && matchesTo
     }).sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime())
-  }, [transactions, typeFilter, accountFilter, dateFrom, dateTo])
+  }, [accounts, creditCards, transactions, typeFilter, accountFilter, dateFrom, dateTo])
 
   const accountLabel = (id: string | null) => {
     if (!id) return '—'

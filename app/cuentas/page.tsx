@@ -180,6 +180,13 @@ export default function CuentasPage() {
                                         <td className="px-8 py-5">
                                             <div className="flex items-center justify-center gap-2">
                                                 <Link
+                                                    href={`/cuentas/${account.id}`}
+                                                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-500 transition-all hover:border-slate-900 hover:bg-slate-900 hover:text-white active:scale-95"
+                                                    title="Ver movimientos de la cuenta"
+                                                >
+                                                    Movimientos
+                                                </Link>
+                                                <Link
                                                     href={`/cuentas/${account.id}/editar`}
                                                     className="rounded-xl border border-slate-200 p-2 text-slate-400 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all active:scale-95"
                                                     title="Editar cuenta"
