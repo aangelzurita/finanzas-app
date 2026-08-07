@@ -285,7 +285,10 @@ export async function settleRecurringCharge(
   charge: RecurringCharge,
   paymentMethodType: 'account' | 'credit_card',
   paymentSourceId: string,
-  referenceDate = new Date()
+  options: {
+    referenceDate?: Date
+    transactionDate?: string
+  } = {}
 ) {
   if (!charge.is_active || !charge.next_charge_date) {
     throw new Error('Este recurrente no tiene un cobro pendiente por liquidar.')
@@ -299,6 +302,7 @@ export async function settleRecurringCharge(
     throw new Error(`El recurrente "${charge.name}" está configurado como solo recordatorio.`)
   }
 
+  const referenceDate = options.referenceDate ?? new Date()
   const dueDates = getPendingRecurringOccurrences(charge, referenceDate)
   if (dueDates.length === 0) {
     throw new Error('Este recurrente todavía no vence.')
@@ -306,6 +310,13 @@ export async function settleRecurringCharge(
 
   const chargeDate = dueDates[0]
   const runDate = chargeDate
+  const transactionDate = options.transactionDate || chargeDate
+  const parsedTransactionDate = parseDateOnly(transactionDate)
+
+  if (Number.isNaN(parsedTransactionDate.getTime())) {
+    throw new Error('La fecha real del cargo no es válida.')
+  }
+
   const isCardCharge = paymentMethodType === 'credit_card'
   let sourceAccountId = paymentSourceId
 
@@ -344,7 +355,7 @@ export async function settleRecurringCharge(
       user_id: charge.user_id,
       transaction_type: isCardCharge ? 'credit_card_purchase' : 'expense',
       amount: Number(charge.amount || 0),
-      transaction_date: formatChargeTimestamp(parseDateOnly(chargeDate)),
+      transaction_date: formatChargeTimestamp(parsedTransactionDate),
       description: charge.description?.trim() ? `${charge.name} - ${charge.description}` : charge.name,
       status: 'completed',
       affects_budget: true,

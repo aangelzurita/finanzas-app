@@ -21,6 +21,11 @@ type CreditCard = {
   name: string
 }
 
+function localDateKey(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 10)
+}
+
 export default function PagarRecurrentePage() {
   const supabase = createClient()
   const router = useRouter()
@@ -37,6 +42,7 @@ export default function PagarRecurrentePage() {
   const [paymentMethodType, setPaymentMethodType] = useState<'account' | 'credit_card'>('credit_card')
   const [accountId, setAccountId] = useState('')
   const [creditCardId, setCreditCardId] = useState('')
+  const [transactionDate, setTransactionDate] = useState(() => localDateKey())
 
   useEffect(() => {
     void initialize()
@@ -119,12 +125,18 @@ export default function PagarRecurrentePage() {
       return
     }
 
+    if (!transactionDate) {
+      fail('Confirma la fecha real del cargo.')
+      return
+    }
+
     try {
       await settleRecurringCharge(
         supabase,
         charge,
         paymentMethodType,
-        paymentMethodType === 'account' ? accountId : creditCardId
+        paymentMethodType === 'account' ? accountId : creditCardId,
+        { transactionDate }
       )
 
       setMessage('Recurrente liquidado correctamente.')
@@ -200,9 +212,24 @@ export default function PagarRecurrentePage() {
             <p className="mt-1 text-sm text-slate-500">
               Fecha pendiente: <span className="font-bold text-slate-900">{dueDates[0] || '---'}</span>
             </p>
+            <p className="mt-3 text-xs font-bold text-slate-500">
+              La fecha pendiente identifica el cobro vencido. La fecha real se usará en el movimiento que se va a crear.
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            <Field label="Fecha real del cargo">
+              <input
+                type="date"
+                className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all"
+                value={transactionDate}
+                onChange={(e) => setTransactionDate(e.target.value)}
+              />
+              <p className="mt-2 text-xs font-bold text-slate-500">
+                Úsala si el cargo vencía un día, pero realmente lo pagaste o se cargó después.
+              </p>
+            </Field>
+
             <Field label="Pagar con">
               <select
                 className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all appearance-none"

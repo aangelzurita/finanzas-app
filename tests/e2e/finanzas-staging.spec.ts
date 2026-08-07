@@ -346,6 +346,7 @@ test.describe.serial('Finanzas App staging operativo con rollback', () => {
     await row.getByRole('link', { name: /pagar ahora/i }).click()
 
     await expect(page.getByRole('heading', { name: /liquidar recurrente/i })).toBeVisible({ timeout: 15_000 })
+    await formFieldControl(page, 'Fecha real del cargo').fill('2026-08-03')
     await formFieldControl(page, 'Pagar con', 'select').selectOption({ label: 'Cuenta / efectivo' })
     await formFieldControl(page, 'Selecciona la cuenta', 'select').selectOption({ label: tdcPaymentAccountName })
     await page.getByRole('button', { name: /registrar pago/i }).click()
