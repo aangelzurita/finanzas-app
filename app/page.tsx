@@ -408,6 +408,18 @@ export default function Home() {
     [financialEvents]
   )
 
+  const monthlyCashCommitmentEvents = useMemo(
+    () =>
+      financialEvents
+        .filter((event) => event.direction === 'outflow' && event.affectsCash && Number(event.amount || 0) > 0)
+        .sort((a, b) => {
+          const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime()
+          if (dateDiff !== 0) return dateDiff
+          return Number(b.amount || 0) - Number(a.amount || 0)
+        }),
+    [financialEvents]
+  )
+
   const topCashflowEvents = useMemo(
     () => {
       const todayKey = appDate.toISOString().slice(0, 10)
@@ -1043,6 +1055,22 @@ export default function Home() {
                       <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 text-sm font-bold text-slate-600">
                         <span>{event.title}</span>
                         <span className="shrink-0 text-xs text-amber-700">{formatDate(event.date)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {monthlyCashCommitmentEvents.length > 0 && (
+                <div className="rounded-2xl border border-slate-100 bg-white p-4 md:col-span-2">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Incluidos en este total</p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {monthlyCashCommitmentEvents.slice(0, 6).map((event) => (
+                      <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+                        <span>{event.title}</span>
+                        <span className="shrink-0 text-right">
+                          <span className="block text-xs text-slate-400">{formatDate(event.date)}</span>
+                          <span className="text-rose-600">{formatMoney(event.amount)}</span>
+                        </span>
                       </div>
                     ))}
                   </div>

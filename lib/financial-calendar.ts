@@ -358,7 +358,7 @@ export function buildRecurringChargeEvents(
 
     const events: FinancialCalendarEvent[] = []
     const cashEnabled = charge.affects_cash !== false
-    const affectsCash = cashEnabled && charge.payment_method_type !== 'credit_card'
+    const affectsCash = cashEnabled && charge.payment_method_type === 'account'
     let cursor = parseDateOnly(charge.next_charge_date)
     let guard = 0
 
@@ -380,7 +380,7 @@ export function buildRecurringChargeEvents(
         accountId: charge.account_id || undefined,
         creditCardId: charge.credit_card_id || undefined,
         confidence: charge.payment_method_type === 'manual_choice' ? 'manual' : 'estimated',
-        eventStatus: cashEnabled ? (charge.payment_method_type === 'manual_choice' ? 'manual' : 'estimated') : 'informational',
+        eventStatus: cashEnabled ? (charge.payment_method_type === 'manual_choice' ? 'pending_confirmation' : 'estimated') : 'informational',
         affectsCash,
         affectsBudget: cashEnabled,
       })

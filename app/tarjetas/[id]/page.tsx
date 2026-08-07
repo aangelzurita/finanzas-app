@@ -124,6 +124,8 @@ export default function TarjetaDetallePage() {
   const [paymentDueInput, setPaymentDueInput] = useState('')
   const [noInterestInput, setNoInterestInput] = useState('')
   const [minimumInput, setMinimumInput] = useState('')
+  const [bankUsedBalanceInput, setBankUsedBalanceInput] = useState('')
+  const [updateUsedBalanceFromBank, setUpdateUsedBalanceFromBank] = useState(false)
   const [allMovementsConfirmed, setAllMovementsConfirmed] = useState(false)
   const [closingStatement, setClosingStatement] = useState(false)
 
@@ -408,6 +410,8 @@ export default function TarjetaDetallePage() {
     setPaymentDueInput(preview.paymentDueDate)
     setNoInterestInput(String(preview.estimatedNoInterestPayment.toFixed(2)))
     setMinimumInput(String(Number(card.minimum_payment || preview.suggestedMinimumPayment || 0).toFixed(2)))
+    setBankUsedBalanceInput(String(Number(card.current_balance || 0).toFixed(2)))
+    setUpdateUsedBalanceFromBank(false)
     setAllMovementsConfirmed(false)
     setMessage('')
   }
@@ -515,6 +519,7 @@ export default function TarjetaDetallePage() {
 
     const noInterestPayment = Number(noInterestInput)
     const minimumPayment = Number(minimumInput || 0)
+    const bankUsedBalance = Number(bankUsedBalanceInput)
 
     if (!Number.isFinite(noInterestPayment) || noInterestPayment < 0) {
       setMessage('Ingresa un pago para no generar intereses válido.')
@@ -528,6 +533,11 @@ export default function TarjetaDetallePage() {
 
     if (!paymentDueInput) {
       setMessage('Ingresa la fecha límite de pago.')
+      return
+    }
+
+    if (updateUsedBalanceFromBank && (!Number.isFinite(bankUsedBalance) || bankUsedBalance < 0)) {
+      setMessage('Ingresa un saldo usado de banco válido.')
       return
     }
 
@@ -547,6 +557,7 @@ export default function TarjetaDetallePage() {
       .update({
         no_interest_payment: noInterestPayment,
         minimum_payment: minimumPayment,
+        ...(updateUsedBalanceFromBank ? { current_balance: bankUsedBalance } : {}),
       })
       .eq('id', card.id)
 
@@ -554,6 +565,19 @@ export default function TarjetaDetallePage() {
       setMessage(cardError.message)
       setClosingStatement(false)
       return
+    }
+
+    if (updateUsedBalanceFromBank) {
+      const { error: accountError } = await supabase
+        .from('accounts')
+        .update({ current_balance: bankUsedBalance })
+        .eq('id', card.account_id)
+
+      if (accountError) {
+        setMessage(`El corte actualizó la tarjeta, pero no pudo actualizar la cuenta espejo: ${accountError.message}`)
+        setClosingStatement(false)
+        return
+      }
     }
 
     let savedStatementSnapshot = false
@@ -596,6 +620,8 @@ export default function TarjetaDetallePage() {
     setStatementPreview(null)
     setStatementCutoffInput('')
     setPaymentDueInput('')
+    setBankUsedBalanceInput('')
+    setUpdateUsedBalanceFromBank(false)
     setAllMovementsConfirmed(false)
     await initialize()
     setClosingStatement(false)
@@ -957,6 +983,42 @@ export default function TarjetaDetallePage() {
                   Si el banco aún no lo muestra, puedes dejar el valor actual y actualizarlo después.
                 </span>
               </label>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
+              <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-start">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black uppercase tracking-widest text-amber-700">
+                    Saldo usado actual en banco
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={bankUsedBalanceInput}
+                    onChange={(event) => setBankUsedBalanceInput(event.target.value)}
+                    className="w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 text-lg font-black text-slate-900 outline-none transition focus:border-amber-500"
+                  />
+                  <span className="mt-2 block text-xs font-bold text-amber-800">
+                    Este no es el pago del corte: es el saldo utilizado que muestra tu app bancaria. Si lo confirmas, actualiza saldo usado y disponible.
+                  </span>
+                  {Math.abs(Number(bankUsedBalanceInput || 0) - Number(card.current_balance || 0)) > 0.01 && (
+                    <span className="mt-2 block text-xs font-bold text-amber-700">
+                      Ajuste contra saldo actual app: {formatMoney(Number(bankUsedBalanceInput || 0) - Number(card.current_balance || 0))}.
+                    </span>
+                  )}
+                </label>
+
+                <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm font-black text-amber-800">
+                  <input
+                    type="checkbox"
+                    checked={updateUsedBalanceFromBank}
+                    onChange={(event) => setUpdateUsedBalanceFromBank(event.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-amber-300"
+                  />
+                  <span>Actualizar saldo usado/disponible con este monto</span>
+                </label>
+              </div>
             </div>
 
             <label className="mt-5 flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold text-slate-600">
