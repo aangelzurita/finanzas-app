@@ -335,6 +335,9 @@ export default function TarjetaDetallePage() {
 
   const historyRows = useMemo<HistoryRow[]>(() => {
     const appDate = getAppDate()
+    const purchaseTransactionIds = new Set(
+      installments.map((plan) => plan.purchase_transaction_id).filter(Boolean)
+    )
     const realInstallmentSequences = new Set<string>()
     const realInstallmentPlansWithoutSequence = new Set<string>()
 
@@ -343,7 +346,7 @@ export default function TarjetaDetallePage() {
 
       if (Number.isFinite(Number(tx.installment_sequence))) {
         realInstallmentSequences.add(`${tx.related_installment_id}:${Number(tx.installment_sequence)}`)
-      } else {
+      } else if (!purchaseTransactionIds.has(tx.id)) {
         realInstallmentPlansWithoutSequence.add(tx.related_installment_id)
       }
     })
