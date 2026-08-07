@@ -317,7 +317,18 @@ export default function FlujoPage() {
     }
   }
 
-  const pointsWithEvents = projection.points.filter((point) => point.events.length > 0)
+  const shouldShowTimelineEvent = (event: FinancialCalendarEvent) =>
+    event.affectsCash ||
+    event.direction === 'inflow' ||
+    event.eventStatus === 'pending_confirmation' ||
+    event.possibleDuplicate === true
+
+  const pointsWithEvents = projection.points
+    .map((point) => ({
+      ...point,
+      events: point.events.filter(shouldShowTimelineEvent),
+    }))
+    .filter((point) => point.events.length > 0)
   const lowestPoint = projection.points.find((point) => point.date === projection.summary.lowestBalanceDate)
   const lowestPointCashOutflows = (lowestPoint?.events || []).filter(
     (event) => event.direction === 'outflow' && event.affectsCash
@@ -751,6 +762,27 @@ export default function FlujoPage() {
                     </p>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {simulationResult && simulationResult.simulatedEvents.length > 0 && (
+            <div className="mt-6 rounded-2xl border border-sky-100 bg-sky-50 p-5">
+              <p className="text-xs font-black uppercase tracking-widest text-sky-700">Impacto de esta simulación</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {simulationResult.simulatedEvents.slice(0, 6).map((event) => (
+                  <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-600">
+                    <span>
+                      <span className="block text-slate-900">{event.title}</span>
+                      <span className="text-xs text-slate-400">
+                        {formatDate(event.date)} · {event.affectsCash ? 'Afecta caja' : 'No afecta caja hoy'}
+                      </span>
+                    </span>
+                    <span className={event.direction === 'inflow' ? 'text-emerald-600' : event.affectsCash ? 'text-rose-600' : 'text-sky-700'}>
+                      {event.direction === 'inflow' ? '+' : event.direction === 'outflow' ? '-' : ''} {formatMoney(event.amount)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
