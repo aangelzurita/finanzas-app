@@ -398,21 +398,31 @@ export default function Home() {
     return items.filter((item) => item.amount > 0)
   }, [financialEvents])
 
+  const pendingCommitmentConfirmations = useMemo(
+    () =>
+      financialEvents.filter(
+        (event) =>
+          event.eventStatus === 'pending_confirmation' &&
+          (event.sourceType === 'credit_card_payment' || event.sourceType === 'debt_payment')
+      ),
+    [financialEvents]
+  )
+
   const topCashflowEvents = useMemo(
     () => {
       const todayKey = appDate.toISOString().slice(0, 10)
       const priority = (event: FinancialCalendarEvent) => {
         if (event.sourceType === 'income_schedule' && event.date <= todayKey) return 0
         if (event.direction === 'outflow' && event.affectsCash && event.date <= todayKey) return 1
-        if (event.eventStatus === 'pending_confirmation') return 2
-        if (event.direction === 'outflow' && event.affectsCash) return 3
-        if (event.sourceType === 'income_schedule') return 4
+        if (event.direction === 'outflow' && event.affectsCash) return 2
+        if (event.sourceType === 'income_schedule') return 3
+        if (event.eventStatus === 'pending_confirmation') return 4
         if (!event.affectsCash) return 5
         return 6
       }
 
       return financialEvents
-        .filter((event) => event.affectsCash || event.eventStatus === 'pending_confirmation' || event.eventStatus === 'informational')
+        .filter((event) => event.affectsCash || event.sourceType === 'income_schedule')
         .sort((a, b) => {
           const priorityDiff = priority(a) - priority(b)
           if (priorityDiff !== 0) return priorityDiff
@@ -993,6 +1003,11 @@ export default function Home() {
                 <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
                   Tarjetas, MSI, deudas, recurrentes y alertas con monto. No es gasto nuevo: es dinero ya comprometido para cubrir este mes.
                 </p>
+                {pendingCommitmentConfirmations.length > 0 && (
+                  <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-amber-700">
+                    Hay {pendingCommitmentConfirmations.length} compromiso{pendingCommitmentConfirmations.length === 1 ? '' : 's'} sin monto confirmado. No suma{pendingCommitmentConfirmations.length === 1 ? '' : 'n'} al total hasta capturar el pago real.
+                  </p>
+                )}
               </div>
               <span className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-widest ${healthToneClasses[pressureHealth.tone]}`}>
                 {pressureHealth.status}
@@ -1020,6 +1035,19 @@ export default function Home() {
                   No hay compromisos con monto para este mes. Revisa tarjetas, deudas, recurrentes o recordatorios si esperabas ver pagos aquí.
                 </div>
               )}
+              {pendingCommitmentConfirmations.length > 0 && (
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 md:col-span-2">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-amber-600">Pendientes por confirmar</p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {pendingCommitmentConfirmations.slice(0, 4).map((event) => (
+                      <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 text-sm font-bold text-slate-600">
+                        <span>{event.title}</span>
+                        <span className="shrink-0 text-xs text-amber-700">{formatDate(event.date)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1034,6 +1062,9 @@ export default function Home() {
               <AlertTriangle size={24} className={primaryAttention.tone === 'rose' ? 'text-rose-500' : primaryAttention.tone === 'amber' ? 'text-amber-500' : 'text-slate-400'} />
             </div>
             <p className="mt-4 text-sm font-bold leading-relaxed text-slate-600">{primaryAttention.text}</p>
+            <p className="mt-2 text-xs font-bold leading-relaxed text-slate-500">
+              Incluye gasto del mes y mensualidades MSI asignadas a esa categoría.
+            </p>
             {leakHealth.progress > 0 && (
               <div className="mt-5">
                 <div className="mb-2 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
