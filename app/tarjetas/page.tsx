@@ -435,8 +435,8 @@ export default function TarjetasPage() {
 
               <div className="grid min-w-[340px] grid-cols-2 gap-4">
                 <MiniStat label="Próximo corte" value={formatAdvisorDate(bestAdvisorCard.estimatedCutoffDate)} subvalue={`${bestAdvisorCard.daysUntilCutoff} días`} />
-                <MiniStat label="Próximo pago" value={formatAdvisorDate(bestAdvisorCard.estimatedPaymentDueDate)} />
-                <MiniStat label="Días para pagar" value={`${bestAdvisorCard.financingDaysIfUsedToday}`} valueClassName="text-emerald-600 font-black" />
+                <MiniStat label="Próximo pago" value={formatAdvisorDate(bestAdvisorCard.nextPaymentDueDate)} subvalue={`${bestAdvisorCard.daysUntilPayment} días`} />
+                <MiniStat label="Financiamiento compra" value={`${bestAdvisorCard.financingDaysIfUsedToday} días`} valueClassName="text-emerald-600 font-black" />
                 <MiniStat label="Disponible" value={formatMoney(bestAdvisorCard.availableCredit)} valueClassName="text-emerald-600 font-black" />
                 <MiniStat label="Riesgo" value={advisorRiskLabel[bestAdvisorCard.riskLevel]} />
                 <MiniStat label="Score" value={`${bestAdvisorCard.score}`} valueClassName="text-slate-900 font-black" />
@@ -490,9 +490,9 @@ export default function TarjetasPage() {
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[560px] lg:grid-cols-4">
-                      <MiniStat label="Días para pagar" value={`${item.financingDaysIfUsedToday}`} valueClassName="text-emerald-600 font-black" />
+                      <MiniStat label="Financiamiento compra" value={`${item.financingDaysIfUsedToday} días`} valueClassName="text-emerald-600 font-black" />
                       <MiniStat label="Corte" value={formatAdvisorDate(item.estimatedCutoffDate)} />
-                      <MiniStat label="Pago" value={formatAdvisorDate(item.estimatedPaymentDueDate)} />
+                      <MiniStat label="Próximo pago" value={formatAdvisorDate(item.nextPaymentDueDate)} subvalue={`${item.daysUntilPayment} días`} />
                       <MiniStat label="Disponible" value={formatMoney(item.availableCredit)} valueClassName="text-emerald-600 font-black" />
                       <MiniStat label="Saldo usado" value={formatMoney(item.currentBalance)} valueClassName="text-rose-600 font-bold" />
                       <MiniStat label="Utilización" value={`${(item.utilizationRate * 100).toFixed(1)}%`} />

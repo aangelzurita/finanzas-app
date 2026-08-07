@@ -617,7 +617,7 @@ export default function FlujoPage() {
                         <p className="text-xs font-bold text-slate-500">{purchaseAdvisorResult.bestOption.daysUntilCutoff} días al corte</p>
                       </div>
                       <div className="rounded-2xl border border-slate-100 p-4">
-                        <p className="text-xs font-bold text-slate-400">Pago</p>
+                        <p className="text-xs font-bold text-slate-400">Pago estimado compra</p>
                         <p className="mt-2 font-black text-slate-900">{formatDate(purchaseAdvisorResult.bestOption.paymentDueDate)}</p>
                         <p className="text-xs font-bold text-slate-500">{purchaseAdvisorResult.bestOption.daysUntilPayment} días hasta pagar</p>
                       </div>

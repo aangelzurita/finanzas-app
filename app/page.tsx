@@ -959,8 +959,8 @@ export default function Home() {
                     <p className="mt-1 text-sm font-black text-slate-950">{formatDate(bestAdvisorCard.estimatedCutoffDate.toISOString())}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago</p>
-                    <p className="mt-1 text-sm font-black text-slate-950">{formatDate(bestAdvisorCard.estimatedPaymentDueDate.toISOString())}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Próximo pago</p>
+                    <p className="mt-1 text-sm font-black text-slate-950">{formatDate(bestAdvisorCard.nextPaymentDueDate.toISOString())}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-3">
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso</p>

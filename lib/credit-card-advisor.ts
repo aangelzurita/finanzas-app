@@ -14,6 +14,7 @@ export type CardAdvisorResult = {
   cardName: string
   estimatedCutoffDate: Date
   estimatedPaymentDueDate: Date
+  nextPaymentDueDate: Date
   daysUntilCutoff: number
   daysUntilPayment: number
   financingDaysIfUsedToday: number
@@ -74,12 +75,14 @@ export function getCardFinancingDates(
   const today = startOfDay(referenceDate)
   const estimatedCutoffDate = nextDateForDay(today, Number(card.statement_cutoff_day || 1))
   const estimatedPaymentDueDate = paymentDateForCutoff(estimatedCutoffDate, Number(card.payment_due_day || 1))
+  const nextPaymentDueDate = nextDateForDay(today, Number(card.payment_due_day || 1))
 
   return {
     estimatedCutoffDate,
     estimatedPaymentDueDate,
+    nextPaymentDueDate,
     daysUntilCutoff: daysBetween(today, estimatedCutoffDate),
-    daysUntilPayment: daysBetween(today, nextDateForDay(today, Number(card.payment_due_day || 1))),
+    daysUntilPayment: daysBetween(today, nextPaymentDueDate),
     financingDaysIfUsedToday: daysBetween(today, estimatedPaymentDueDate),
   }
 }
@@ -214,6 +217,7 @@ export function adviseCreditCards(
         cardName: card.name,
         estimatedCutoffDate: dates.estimatedCutoffDate,
         estimatedPaymentDueDate: dates.estimatedPaymentDueDate,
+        nextPaymentDueDate: dates.nextPaymentDueDate,
         daysUntilCutoff: dates.daysUntilCutoff,
         daysUntilPayment: dates.daysUntilPayment,
         financingDaysIfUsedToday: dates.financingDaysIfUsedToday,

@@ -823,7 +823,7 @@ export default function NuevoMovimientoPage() {
                       </p>
                     </div>
                     <div className="rounded-2xl bg-white p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago estimado compra</p>
                       <p className="mt-1 text-sm font-black text-slate-950">
                         {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedPaymentDueDate.toISOString()) : 'Selecciona tarjeta'}
                       </p>
