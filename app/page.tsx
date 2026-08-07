@@ -93,6 +93,17 @@ function eventAmountClass(event: FinancialCalendarEvent) {
   return 'text-slate-600'
 }
 
+function accountTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    cash: 'Efectivo',
+    debit: 'Débito',
+    savings: 'Ahorro',
+    investment: 'Inversión',
+  }
+
+  return labels[type] || type
+}
+
 function sourceActionHref(event?: FinancialCalendarEvent) {
   if (!event) return '/flujo'
 
@@ -579,6 +590,28 @@ export default function Home() {
       tone: leakHealth.tone,
     }
 
+  const liquidAccountBreakdown = useMemo(() => {
+    const ownAccounts = accounts.filter(
+      (account) => account.is_external !== true && account.include_in_balance !== false
+    )
+    const liquidAccounts = ownAccounts
+      .filter((account) => ['cash', 'debit'].includes(account.account_type))
+      .sort((a, b) => Number(b.current_balance || 0) - Number(a.current_balance || 0))
+    const savingsAccounts = ownAccounts
+      .filter((account) => account.account_type === 'savings')
+      .sort((a, b) => Number(b.current_balance || 0) - Number(a.current_balance || 0))
+    const totalLiquid = liquidAccounts.reduce((acc, account) => acc + Number(account.current_balance || 0), 0)
+
+    return {
+      liquidAccounts,
+      savingsAccounts,
+      visibleAccounts: liquidAccounts.slice(0, 5),
+      remainingCount: Math.max(0, liquidAccounts.length - 5),
+      totalLiquid,
+      totalSavings: savingsAccounts.reduce((acc, account) => acc + Number(account.current_balance || 0), 0),
+    }
+  }, [accounts])
+
   const quickActions = [
     {
       label: 'Gasto',
@@ -825,6 +858,88 @@ export default function Home() {
         </section>
 
         <section className="mt-6 grid gap-6 xl:grid-cols-3">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8 xl:col-span-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-600">Dónde está tu dinero</p>
+                <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">{formatMoney(liquidAccountBreakdown.totalLiquid)}</h2>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-slate-500">
+                  Cuentas propias de efectivo y débito que forman tu dinero disponible. No incluye cuentas externas, tarjetas, ahorro separado ni inversión.
+                </p>
+              </div>
+              <Link href="/cuentas" className="w-fit rounded-2xl bg-slate-950 px-5 py-4 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800">
+                Ver cuentas
+              </Link>
+            </div>
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+              <div className="space-y-3">
+                {liquidAccountBreakdown.visibleAccounts.length > 0 ? liquidAccountBreakdown.visibleAccounts.map((account) => {
+                  const amount = Number(account.current_balance || 0)
+                  const width = liquidAccountBreakdown.totalLiquid > 0
+                    ? Math.min(100, Math.max(6, (Math.max(0, amount) / liquidAccountBreakdown.totalLiquid) * 100))
+                    : 0
+
+                  return (
+                    <Link
+                      key={account.id}
+                      href={`/cuentas/${account.id}`}
+                      className="group block rounded-2xl border border-slate-100 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:border-emerald-100 hover:bg-emerald-50/50 hover:shadow-md"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-black text-slate-950">{account.name}</p>
+                          <p className="mt-1 text-xs font-black uppercase tracking-widest text-slate-400">{accountTypeLabel(account.account_type)}</p>
+                        </div>
+                        <p className={`shrink-0 text-lg font-black ${amount >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+                          {formatMoney(amount)}
+                        </p>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+                        <div className={`h-full rounded-full ${amount >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${width}%` }} />
+                      </div>
+                    </Link>
+                  )
+                }) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-500">
+                    No hay cuentas de efectivo o débito activas para mostrar.
+                  </div>
+                )}
+
+                {liquidAccountBreakdown.remainingCount > 0 && (
+                  <Link href="/cuentas" className="block rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-center text-sm font-black text-slate-500 transition hover:border-slate-300 hover:text-slate-950">
+                    Ver {liquidAccountBreakdown.remainingCount} cuenta(s) más
+                  </Link>
+                )}
+              </div>
+
+              <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm">
+                    <Wallet size={22} />
+                  </span>
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Separado de disponible</p>
+                    <p className="mt-1 text-xl font-black text-slate-950">{formatMoney(liquidAccountBreakdown.totalSavings)}</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm font-bold leading-relaxed text-slate-500">
+                  Ahorro e inversión pueden ser dinero tuyo, pero no forman parte del efectivo inmediato usado para la proyección diaria.
+                </p>
+                {liquidAccountBreakdown.savingsAccounts.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {liquidAccountBreakdown.savingsAccounts.slice(0, 3).map((account) => (
+                      <Link key={account.id} href={`/cuentas/${account.id}`} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-600 transition hover:text-slate-950">
+                        <span className="truncate">{account.name}</span>
+                        <span>{formatMoney(Number(account.current_balance || 0))}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8">
             <div className="flex items-center justify-between gap-4">
               <div>

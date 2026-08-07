@@ -425,6 +425,12 @@ export default function TarjetasPage() {
                     </span>
                   ))}
                 </div>
+                <Link
+                  href={`/tarjetas/${bestAdvisorCard.cardId}`}
+                  className="mt-6 inline-flex rounded-2xl bg-emerald-300 px-5 py-3 text-xs font-black uppercase tracking-widest text-slate-950 transition hover:bg-emerald-200 active:scale-95"
+                >
+                  Ver detalle de tarjeta
+                </Link>
               </div>
 
               <div className="grid min-w-[340px] grid-cols-2 gap-4">
@@ -455,7 +461,11 @@ export default function TarjetasPage() {
 
             <div className="space-y-4">
               {advisorResults.map((item, index) => (
-                <div key={item.cardId} className="finance-hover rounded-3xl border border-slate-100 bg-white/80 p-5 shadow-sm">
+                <Link
+                  key={item.cardId}
+                  href={`/tarjetas/${item.cardId}`}
+                  className="finance-hover block rounded-3xl border border-slate-100 bg-white/80 p-5 shadow-sm transition hover:border-emerald-100 hover:bg-emerald-50/40"
+                >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
@@ -465,6 +475,9 @@ export default function TarjetasPage() {
                         <h3 className="text-xl font-black text-slate-900">{item.cardName}</h3>
                         <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-widest ${advisorTone[item.recommendation]}`}>
                           {advisorRecommendationLabel[item.recommendation]}
+                        </span>
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-widest text-slate-400">
+                          Ver detalle
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -487,7 +500,7 @@ export default function TarjetasPage() {
                       <MiniStat label="Score" value={`${item.score}`} />
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -514,6 +527,18 @@ export default function TarjetasPage() {
         )}
 
         <div className="grid gap-8 lg:grid-cols-2">
+          <div className="lg:col-span-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Detalle completo</p>
+                <h2 className="text-2xl font-black tracking-tight text-slate-950">Todas tus tarjetas</h2>
+              </div>
+              <p className="text-sm font-bold text-slate-500">
+                Usa estas tarjetas para revisar saldos, pagos, MSI y acciones.
+              </p>
+            </div>
+          </div>
+
           {evaluatedCards.map((item) => {
             const { card, usagePercent, available, daysToCutoff, daysToPayment, recommendation, alerts } = item
 
@@ -601,7 +626,7 @@ export default function TarjetasPage() {
 
                 <div className="flex gap-4 pt-6 border-t border-slate-50 mt-auto">
                   <Link
-                    href={`/tarjetas/${card.id}/editar`}
+                    href={`/tarjetas/${card.id}`}
                     className="flex-1 text-center rounded-2xl border-2 border-slate-100 bg-white px-4 py-4 font-black text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all active:scale-[0.98] shadow-sm"
                   >
                     Detalles
