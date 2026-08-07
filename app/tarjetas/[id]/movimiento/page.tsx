@@ -17,6 +17,7 @@ import {
   type CreditCardInstallment,
   validateInstallmentDraft,
 } from '@/lib/credit-card-installments'
+import { formatAppDateKey } from '@/lib/app-date'
 
 type CreditCard = {
   id: string
@@ -355,7 +356,7 @@ export default function TarjetaMovimientoPage() {
           .update({
             status: 'canceled',
             remaining_installments: 0,
-            last_charge_date: new Date(transactionDate).toISOString().slice(0, 10),
+            last_charge_date: formatAppDateKey(new Date(transactionDate)),
           })
           .eq('id', relatedInstallmentId)
 

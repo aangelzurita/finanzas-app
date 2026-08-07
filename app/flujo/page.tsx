@@ -131,6 +131,13 @@ function formatPercent(value: number) {
   return `${(Number(value || 0) * 100).toFixed(0)}%`
 }
 
+function formatDateInput(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function FlujoPage() {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
@@ -145,7 +152,7 @@ export default function FlujoPage() {
   const [debts, setDebts] = useState<FinancialCalendarDebt[]>([])
   const [simulationForm, setSimulationForm] = useState<SimulationForm>({
     amount: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: formatDateInput(getAppDate()),
     type: 'cash_expense',
     months: '3',
     title: '',
@@ -248,15 +255,20 @@ export default function FlujoPage() {
     [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate, endDate]
   )
 
-  const projection = useMemo(
+  const projectedEvents = useMemo(
+    () => simulationResult ? [...events, ...simulationResult.simulatedEvents] : events,
+    [events, simulationResult]
+  )
+
+  const displayedProjection = useMemo(
     () =>
       buildCashflowProjection({
         currentBalance,
-        events,
+        events: projectedEvents,
         startDate: appDate,
         endDate,
       }),
-    [currentBalance, events, appDate, endDate]
+    [currentBalance, projectedEvents, appDate, endDate]
   )
 
   const handleSimulationChange = (
@@ -323,25 +335,25 @@ export default function FlujoPage() {
     event.eventStatus === 'pending_confirmation' ||
     event.possibleDuplicate === true
 
-  const pointsWithEvents = projection.points
+  const pointsWithEvents = displayedProjection.points
     .map((point) => ({
       ...point,
       events: point.events.filter(shouldShowTimelineEvent),
     }))
     .filter((point) => point.events.length > 0)
-  const lowestPoint = projection.points.find((point) => point.date === projection.summary.lowestBalanceDate)
+  const lowestPoint = displayedProjection.points.find((point) => point.date === displayedProjection.summary.lowestBalanceDate)
   const lowestPointCashOutflows = (lowestPoint?.events || []).filter(
     (event) => event.direction === 'outflow' && event.affectsCash
   )
   const lowestPointEvents = lowestPointCashOutflows.length > 0 ? lowestPointCashOutflows : (lowestPoint?.events || [])
-  const chartData = projection.points.map((point) => ({
+  const chartData = displayedProjection.points.map((point) => ({
     date: point.date,
     label: new Date(`${point.date}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
     saldo: point.endingBalance,
   }))
   const largestCashOutflow = Math.max(
     0,
-    ...events
+    ...projectedEvents
       .filter((event) => event.direction === 'outflow' && event.affectsCash)
       .map((event) => Number(event.amount || 0))
   )
@@ -399,22 +411,22 @@ export default function FlujoPage() {
         <section className="mb-6 grid gap-4 lg:grid-cols-3">
           <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Cómo cierro?</p>
-            <p className={`mt-2 text-2xl font-black ${projection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
-              {formatMoney(projection.summary.projectedEndBalance)}
+            <p className={`mt-2 text-2xl font-black ${displayedProjection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+              {formatMoney(displayedProjection.summary.projectedEndBalance)}
             </p>
             <p className="mt-1 text-sm font-bold text-slate-500">Saldo estimado al final del periodo.</p>
           </div>
           <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Qué día me presiona?</p>
-            <p className={`mt-2 text-2xl font-black ${projection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
-              {formatMoney(projection.summary.lowestBalance)}
+            <p className={`mt-2 text-2xl font-black ${displayedProjection.summary.lowestBalance >= 0 ? 'text-slate-950' : 'text-rose-600'}`}>
+              {formatMoney(displayedProjection.summary.lowestBalance)}
             </p>
-            <p className="mt-1 text-sm font-bold text-slate-500">{formatDate(projection.summary.lowestBalanceDate)}</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{formatDate(displayedProjection.summary.lowestBalanceDate)}</p>
           </div>
           <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-widest text-slate-400">¿Puedo gastar?</p>
-            <p className={`mt-2 text-2xl font-black ${riskClasses[projection.summary.riskLevel]}`}>
-              {riskLabels[projection.summary.riskLevel]}
+            <p className={`mt-2 text-2xl font-black ${riskClasses[displayedProjection.summary.riskLevel]}`}>
+              {riskLabels[displayedProjection.summary.riskLevel]}
             </p>
             <p className="mt-1 text-sm font-bold text-slate-500">Usa el simulador para probar una decisión.</p>
           </div>
@@ -789,14 +801,14 @@ export default function FlujoPage() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-4 mb-8">
-          <KpiCard title="Saldo actual" value={formatMoney(projection.summary.currentBalance)} />
-          <KpiCard title="Cierre proyectado" value={formatMoney(projection.summary.projectedEndBalance)} valueClassName={projection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'} />
+          <KpiCard title="Saldo actual" value={formatMoney(displayedProjection.summary.currentBalance)} />
+          <KpiCard title="Cierre proyectado" value={formatMoney(displayedProjection.summary.projectedEndBalance)} valueClassName={displayedProjection.summary.projectedEndBalance >= 0 ? 'text-slate-950' : 'text-rose-600'} />
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-slate-500">Saldo más bajo</p>
-            <p className={`mt-3 text-4xl font-bold tracking-tight ${projection.summary.lowestBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-              {formatMoney(projection.summary.lowestBalance)}
+            <p className={`mt-3 text-4xl font-bold tracking-tight ${displayedProjection.summary.lowestBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+              {formatMoney(displayedProjection.summary.lowestBalance)}
             </p>
-            <p className="mt-2 text-sm text-slate-400">{formatDate(projection.summary.lowestBalanceDate)}</p>
+            <p className="mt-2 text-sm text-slate-400">{formatDate(displayedProjection.summary.lowestBalanceDate)}</p>
             {lowestPointEvents.length > 0 && (
               <div className="mt-4 border-t border-slate-100 pt-3">
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Provocado por</p>
@@ -813,7 +825,7 @@ export default function FlujoPage() {
               </div>
             )}
           </div>
-          <KpiCard title="Riesgo" value={riskLabels[projection.summary.riskLevel]} valueClassName={riskClasses[projection.summary.riskLevel]} />
+          <KpiCard title="Riesgo" value={riskLabels[displayedProjection.summary.riskLevel]} valueClassName={riskClasses[displayedProjection.summary.riskLevel]} />
         </div>
 
         <div className="finance-card-strong finance-soft-pop mb-8 rounded-[2.5rem] p-6">
@@ -853,7 +865,7 @@ export default function FlujoPage() {
               <div
                 key={point.date}
                 className={`grid gap-4 px-8 py-6 lg:grid-cols-12 ${
-                  point.date === projection.summary.lowestBalanceDate ? 'bg-amber-50/60' : ''
+                  point.date === displayedProjection.summary.lowestBalanceDate ? 'bg-amber-50/60' : ''
                 }`}
               >
                 <div className="lg:col-span-3">
@@ -881,7 +893,7 @@ export default function FlujoPage() {
                               ? 'border-sky-200 bg-sky-50'
                           : event.affectsCash && Number(event.amount || 0) === largestCashOutflow
                             ? 'border-rose-200 bg-rose-50'
-                            : point.date === projection.summary.lowestBalanceDate && event.affectsCash
+                            : point.date === displayedProjection.summary.lowestBalanceDate && event.affectsCash
                               ? 'border-amber-200 bg-amber-50'
                               : 'border-slate-100 bg-slate-50'
                       }`}
@@ -896,7 +908,7 @@ export default function FlujoPage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-black text-slate-900">{event.title}</p>
-                          {point.date === projection.summary.lowestBalanceDate && event.affectsCash && (
+                          {point.date === displayedProjection.summary.lowestBalanceDate && event.affectsCash && (
                             <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
                               Saldo mínimo
                             </span>

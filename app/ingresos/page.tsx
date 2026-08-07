@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
-import { getAppDate } from '@/lib/app-date'
+import { formatAppDateKey, getAppDate } from '@/lib/app-date'
 import {
   buildIncomeScheduleEvents,
   getNextIncomeScheduleOccurrenceDate,
@@ -43,13 +43,13 @@ type IncomeForm = {
   notes: string
 }
 
-const emptyForm: IncomeForm = {
+const createEmptyForm = (date = getAppDate()): IncomeForm => ({
   name: '',
   amount: '',
   frequency: 'biweekly',
   expected_day: '',
   second_expected_day: '',
-  next_income_date: new Date().toISOString().slice(0, 10),
+  next_income_date: formatAppDateKey(date),
   account_id: '',
   category_id: '',
   variability: 'fixed',
@@ -57,7 +57,7 @@ const emptyForm: IncomeForm = {
   starts_at: '',
   ends_at: '',
   notes: '',
-}
+})
 
 const frequencyLabels: Record<IncomeScheduleFrequency, string> = {
   one_time: 'Único',
@@ -150,9 +150,9 @@ export default function IngresosPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState<IncomeForm>(emptyForm)
   const [markingReceivedId, setMarkingReceivedId] = useState<string | null>(null)
   const appDate = useMemo(() => getAppDate(), [])
+  const [form, setForm] = useState<IncomeForm>(() => createEmptyForm(appDate))
 
   const loadData = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -244,7 +244,7 @@ export default function IngresosPage() {
   }
 
   const resetForm = () => {
-    setForm(emptyForm)
+    setForm(createEmptyForm(appDate))
     setEditingId(null)
   }
 

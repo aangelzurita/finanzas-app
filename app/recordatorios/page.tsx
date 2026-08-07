@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { formatAppDateKey, getAppDate } from '@/lib/app-date'
 import { formatDate, formatMoney } from '@/lib/utils'
 
 type ReminderFrequency = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -51,7 +52,7 @@ function parseDateOnly(value: string) {
 }
 
 function dateKey(value: Date) {
-  return value.toISOString().slice(0, 10)
+  return formatAppDateKey(value)
 }
 
 function reminderDateKey(value: string) {
@@ -59,8 +60,7 @@ function reminderDateKey(value: string) {
 }
 
 function todayKey() {
-  const now = new Date()
-  return dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
+  return formatAppDateKey(getAppDate())
 }
 
 function addNextReminderDate(dueDate: string, frequency: ReminderFrequency) {

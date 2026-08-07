@@ -9,8 +9,16 @@ export const formatMoney = (value: number) =>
         maximumFractionDigits: 2,
     })
 
+const parseDisplayDate = (value: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return new Date(`${value}T12:00:00`)
+    }
+
+    return new Date(value)
+}
+
 export const formatDate = (value: string) =>
-    new Date(value).toLocaleDateString('es-MX', {
+    parseDisplayDate(value).toLocaleDateString('es-MX', {
         day: '2-digit',
         month: 'short',
         year: 'numeric',

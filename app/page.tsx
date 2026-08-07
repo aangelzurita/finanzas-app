@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
-import { getAppDate } from '@/lib/app-date'
+import { getAppDate, getAppTodayISO } from '@/lib/app-date'
 import {
   formatMoney,
   formatDate
@@ -422,7 +422,7 @@ export default function Home() {
 
   const topCashflowEvents = useMemo(
     () => {
-      const todayKey = appDate.toISOString().slice(0, 10)
+      const todayKey = getAppTodayISO()
       const priority = (event: FinancialCalendarEvent) => {
         if (event.sourceType === 'income_schedule' && event.date <= todayKey) return 0
         if (event.direction === 'outflow' && event.affectsCash && event.date <= todayKey) return 1
@@ -444,7 +444,7 @@ export default function Home() {
         })
         .slice(0, 5)
     },
-    [appDate, financialEvents]
+    [financialEvents]
   )
 
   const categoryChartData = useMemo(

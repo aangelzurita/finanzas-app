@@ -9,6 +9,7 @@ import {
   settleRecurringCharge,
   type RecurringCharge,
 } from '@/lib/recurring-charges'
+import { formatAppDateKey } from '@/lib/app-date'
 
 type Account = {
   id: string
@@ -22,8 +23,7 @@ type CreditCard = {
 }
 
 function localDateKey(date = new Date()) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 10)
+  return formatAppDateKey(date)
 }
 
 export default function PagarRecurrentePage() {

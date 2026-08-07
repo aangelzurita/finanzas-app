@@ -30,6 +30,13 @@ function safeDayForMonth(year: number, month: number, preferredDay: number) {
   return Math.min(preferredDay, lastDay)
 }
 
+function formatDateOnly(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function calculateNextChargeDate(
   frequency: RecurringFrequency,
   chargeDay?: number | null
@@ -47,13 +54,13 @@ export function calculateNextChargeDateFrom(
   if (frequency === 'weekly') {
     const next = new Date(today)
     next.setDate(next.getDate() + 7)
-    return next.toISOString().slice(0, 10)
+    return formatDateOnly(next)
   }
 
   if (frequency === 'biweekly') {
     const next = new Date(today)
     next.setDate(next.getDate() + 14)
-    return next.toISOString().slice(0, 10)
+    return formatDateOnly(next)
   }
 
   const preferredDay = chargeDay && chargeDay >= 1 ? chargeDay : today.getDate()
@@ -78,7 +85,7 @@ export function calculateNextChargeDateFrom(
   const finalDay = safeDayForMonth(year, month, preferredDay)
   const next = new Date(year, month, finalDay)
 
-  return next.toISOString().slice(0, 10)
+  return formatDateOnly(next)
 }
 
 function parseDateOnly(value: string) {

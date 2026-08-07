@@ -16,7 +16,7 @@ import {
 } from '@/lib/dashboard'
 import { type CreditCardInstallment } from '@/lib/credit-card-installments'
 import { isBudgetAffectingTransaction } from '@/lib/budget-rules'
-import { getAppDate } from '@/lib/app-date'
+import { formatAppDateKey, getAppDate } from '@/lib/app-date'
 import type { RecurringCharge } from '@/lib/recurring-charges'
 import {
   buildBudgetInsights,
@@ -46,8 +46,8 @@ export default function GastosPage() {
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [periodMode, setPeriodMode] = useState<'current' | 'previous' | 'last3' | 'last6' | 'custom'>('current')
-  const [customStart, setCustomStart] = useState(current.start.toISOString().slice(0, 10))
-  const [customEnd, setCustomEnd] = useState(current.end.toISOString().slice(0, 10))
+  const [customStart, setCustomStart] = useState(formatAppDateKey(current.start))
+  const [customEnd, setCustomEnd] = useState(formatAppDateKey(current.end))
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
