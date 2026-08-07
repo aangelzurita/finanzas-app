@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
-import { formatMoney, daysUntilDayOfMonth } from '@/lib/utils'
+import { getAppDate } from '@/lib/app-date'
+import { formatMoney } from '@/lib/utils'
 import { syncCardReminders } from '@/lib/card-reminders'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
@@ -46,6 +47,19 @@ type CardEvaluation = {
   }[]
 }
 
+function daysUntilDayOfMonthFrom(referenceDate: Date, day: number) {
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate())
+  const safeDay = Math.max(1, Number(day || 1))
+  let target = new Date(today.getFullYear(), today.getMonth(), safeDay)
+
+  if (target < today) {
+    target = new Date(today.getFullYear(), today.getMonth() + 1, safeDay)
+  }
+
+  const diff = target.getTime() - today.getTime()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
 export default function TarjetasPage() {
   const supabase = createClient()
 
@@ -54,6 +68,7 @@ export default function TarjetasPage() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [syncingReminders, setSyncingReminders] = useState(false)
+  const appDate = useMemo(() => getAppDate(), [])
 
   useEffect(() => {
     void initialize()
@@ -129,13 +144,8 @@ export default function TarjetasPage() {
     }
   }
 
-  const today = useMemo(() => new Date(), [])
-
-  const getRecommendation = (cutoffDay: number) => {
-    const todayDay = today.getDate()
-    const diff = cutoffDay - todayDay
-
-    if (diff >= 7) {
+  const getRecommendation = (daysToCutoff: number) => {
+    if (daysToCutoff >= 7) {
       return {
         text: 'Buen momento para comprar',
         color: 'text-emerald-600',
@@ -143,7 +153,7 @@ export default function TarjetasPage() {
       }
     }
 
-    if (diff >= 1 && diff < 7) {
+    if (daysToCutoff >= 1 && daysToCutoff < 7) {
       return {
         text: 'Compra con cuidado, el corte está cerca',
         color: 'text-amber-600',
@@ -213,9 +223,9 @@ export default function TarjetasPage() {
       const available =
         Number(card.credit_limit || 0) - Math.max(0, Number(card.current_balance || 0))
 
-      const daysToCutoff = daysUntilDayOfMonth(card.statement_cutoff_day)
-      const daysToPayment = daysUntilDayOfMonth(card.payment_due_day)
-      const recommendation = getRecommendation(card.statement_cutoff_day)
+      const daysToCutoff = daysUntilDayOfMonthFrom(appDate, card.statement_cutoff_day)
+      const daysToPayment = daysUntilDayOfMonthFrom(appDate, card.payment_due_day)
+      const recommendation = getRecommendation(daysToCutoff)
       const alerts = getAlerts(usagePercent, daysToCutoff, daysToPayment)
 
       let score = 0
@@ -266,9 +276,9 @@ export default function TarjetasPage() {
         alerts,
       }
     })
-  }, [cards])
+  }, [cards, appDate])
 
-  const advisorResults = useMemo(() => adviseCreditCards(cards, today), [cards, today])
+  const advisorResults = useMemo(() => adviseCreditCards(cards, appDate), [cards, appDate])
 
   const bestAdvisorCard = advisorResults[0] || null
 

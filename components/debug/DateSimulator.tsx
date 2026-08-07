@@ -1,14 +1,28 @@
 'use client'
 
-import { useState } from 'react'
-import { clearSimulatedDate, getAppDate, getSimulatedDate, setSimulatedDate } from '@/lib/app-date'
+import { useState, useSyncExternalStore } from 'react'
+import { clearSimulatedDate, getSimulatedDate, setSimulatedDate } from '@/lib/app-date'
+
+function subscribeToSimulatedDate(callback: () => void) {
+  window.addEventListener('storage', callback)
+  return () => window.removeEventListener('storage', callback)
+}
+
+function getServerSimulatedDateSnapshot() {
+  return null
+}
 
 export function DateSimulator() {
   const appEnv = process.env.NEXT_PUBLIC_APP_ENV
   const canSimulateDate = appEnv === 'local' || appEnv === 'staging'
-  const initialSimulatedDate = getSimulatedDate()
-  const [value, setValue] = useState(() => initialSimulatedDate?.slice(0, 10) || '')
-  const [enabled, setEnabled] = useState(() => Boolean(initialSimulatedDate))
+  const simulatedDate = useSyncExternalStore(
+    subscribeToSimulatedDate,
+    getSimulatedDate,
+    getServerSimulatedDateSnapshot
+  )
+  const [draftValue, setDraftValue] = useState<string | null>(null)
+  const value = draftValue ?? simulatedDate?.slice(0, 10) ?? ''
+  const enabled = Boolean(value)
 
   if (!canSimulateDate) return null
 
@@ -23,7 +37,7 @@ export function DateSimulator() {
     window.location.reload()
   }
 
-  const currentAppDate = getAppDate()
+  const currentAppDate = simulatedDate ? new Date(`${simulatedDate.slice(0, 10)}T12:00:00`) : new Date()
 
   return (
     <div className="sticky top-0 z-50 border-b border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
@@ -43,8 +57,7 @@ export function DateSimulator() {
             className="rounded-xl border border-amber-300 px-3 py-2 text-sm"
             value={value}
             onChange={(e) => {
-              setValue(e.target.value)
-              setEnabled(Boolean(e.target.value))
+              setDraftValue(e.target.value)
             }}
           />
 

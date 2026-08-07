@@ -47,11 +47,15 @@ const frequencyLabels: Record<ReminderFrequency, string> = {
 }
 
 function parseDateOnly(value: string) {
-  return new Date(`${value}T12:00:00`)
+  return new Date(`${value.slice(0, 10)}T12:00:00`)
 }
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10)
+}
+
+function reminderDateKey(value: string) {
+  return dateKey(parseDateOnly(value))
 }
 
 function todayKey() {
@@ -271,9 +275,9 @@ export default function RecordatoriosPage() {
     const closedStatuses = new Set(['completed', 'skipped'])
 
     return {
-      overdue: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminder.due_date < today),
-      today: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminder.due_date === today),
-      upcoming: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminder.due_date > today),
+      overdue: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminderDateKey(reminder.due_date) < today),
+      today: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminderDateKey(reminder.due_date) === today),
+      upcoming: reminders.filter((reminder) => !closedStatuses.has(reminder.status) && reminderDateKey(reminder.due_date) > today),
       closed: reminders.filter((reminder) => closedStatuses.has(reminder.status)),
     }
   }, [reminders])

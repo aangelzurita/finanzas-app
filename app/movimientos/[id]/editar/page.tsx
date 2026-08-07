@@ -91,7 +91,7 @@ export default function EditarMovimientoPage() {
       supabase.from('accounts').select('id, name, account_type').eq('is_active', true).order('name'),
       supabase.from('categories').select('id, name, category_type').eq('is_active', true).order('name'),
       supabase.from('credit_cards').select('id, name, account_id').eq('is_active', true).order('name'),
-      supabase.from('debts').select('id, name').neq('status', 'paid').order('name'),
+      supabase.from('debts').select('id, name').eq('status', 'active').order('name'),
       supabase.from('transactions').select('*').eq('id', transactionId).single(),
     ])
 

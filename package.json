@@ -8,6 +8,12 @@
     "env:staging": "node scripts/use-env.mjs staging",
     "dev:production": "node scripts/use-env.mjs production && next dev",
     "dev:staging": "node scripts/use-env.mjs staging && next dev",
+    "staging:snapshot": "node scripts/staging-db.mjs snapshot",
+    "staging:reset": "node scripts/staging-db.mjs reset",
+    "staging:audit": "node scripts/staging-audit.mjs",
+    "staging:seed-qa": "node scripts/staging-seed-qa.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -22,6 +28,7 @@
     "recharts": "^3.8.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

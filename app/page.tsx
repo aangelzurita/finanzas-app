@@ -420,8 +420,8 @@ export default function Home() {
   )
 
   const cardAdvisorResults = useMemo(
-    () => adviseCreditCards(creditCards),
-    [creditCards]
+    () => adviseCreditCards(creditCards, appDate),
+    [creditCards, appDate]
   )
 
   const bestAdvisorCard = cardAdvisorResults[0]

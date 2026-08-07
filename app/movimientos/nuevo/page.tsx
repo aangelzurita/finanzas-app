@@ -166,7 +166,7 @@ export default function NuevoMovimientoPage() {
           .select('id, name, account_id, statement_cutoff_day, payment_due_day, credit_limit, current_balance, minimum_payment, no_interest_payment')
           .eq('is_active', true)
           .order('name'),
-        supabase.from('debts').select('id, name').neq('status', 'paid').order('name'),
+        supabase.from('debts').select('id, name').eq('status', 'active').order('name'),
       ])
 
     setAccounts(accountsData ?? [])
