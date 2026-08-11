@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   CalendarClock,
   CircleDollarSign,
+  Brain,
   Gauge,
   MoreHorizontal,
   ReceiptText,
@@ -13,6 +14,7 @@ import {
 const navItems = [
   { href: '/', label: 'Hoy', hint: 'Estado actual', icon: Gauge },
   { href: '/flujo', label: 'Planificar', hint: 'Flujo futuro', icon: CalendarClock },
+  { href: '/diagnostico', label: 'Diagnóstico', hint: 'Decisiones', icon: Brain },
   { href: '/obligaciones', label: 'Obligaciones', hint: 'Pagos', icon: ReceiptText },
   { href: '/gastos', label: 'Gastos', hint: 'Fugas', icon: CircleDollarSign },
   { href: '/mas', label: 'Más', hint: 'Administrar', icon: MoreHorizontal },
@@ -29,7 +31,7 @@ export function MainNavigation() {
   return (
     <>
       <nav className="sticky top-3 z-40 mb-8 hidden rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-2 shadow-xl shadow-slate-900/8 backdrop-blur md:block">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = isActive(pathname, item.href)
@@ -55,7 +57,7 @@ export function MainNavigation() {
       </nav>
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-2xl shadow-slate-950/15 backdrop-blur md:hidden">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = isActive(pathname, item.href)
