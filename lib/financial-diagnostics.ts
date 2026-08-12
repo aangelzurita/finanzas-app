@@ -114,6 +114,11 @@ type BuildFinancialDiagnosisInput = {
   referenceDate: Date
 }
 
+type CardPaymentCandidate = DiagnosticCreditCard & {
+  paymentAmount: number
+  paymentDueDate: string
+}
+
 function roundMoney(value: number) {
   return Number(value.toFixed(2))
 }
@@ -199,6 +204,27 @@ function accountEventsUntil(events: FinancialCalendarEvent[], accountId: string,
   )
 }
 
+function projectedAccountBalanceUntil(
+  account: DiagnosticAccount,
+  events: FinancialCalendarEvent[],
+  untilDate: string,
+  reservedOutflow: number
+) {
+  const linkedEvents = accountEventsUntil(events, account.id, untilDate)
+  const inflow = linkedEvents
+    .filter((event) => event.direction === 'inflow')
+    .reduce((acc, event) => acc + Number(event.amount || 0), 0)
+  const outflow = linkedEvents
+    .filter((event) => event.direction === 'outflow')
+    .reduce((acc, event) => acc + Number(event.amount || 0), 0)
+
+  return {
+    inflow,
+    outflow,
+    projectedBeforePayment: roundMoney(Number(account.current_balance || 0) + inflow - outflow - reservedOutflow),
+  }
+}
+
 export function buildPaymentRecommendations({
   accounts,
   creditCards,
@@ -208,23 +234,28 @@ export function buildPaymentRecommendations({
   const candidateAccounts = accounts
     .filter(isLiquidAccount)
     .filter((account) => Number(account.current_balance || 0) > 0)
+  const reservedByAccount = new Map<string, number>()
+  const cardPayments: CardPaymentCandidate[] = creditCards
+    .map((card) => ({
+      ...card,
+      paymentAmount: Number(card.no_interest_payment || card.minimum_payment || 0),
+      paymentDueDate: formatDateKey(dateForDay(referenceDate, card.payment_due_day)),
+    }))
+    .filter((card) => Number(card.current_balance || 0) > 0 && card.paymentAmount > 0)
+    .sort((a, b) => {
+      const dateDiff = new Date(`${a.paymentDueDate}T12:00:00`).getTime() - new Date(`${b.paymentDueDate}T12:00:00`).getTime()
+      if (dateDiff !== 0) return dateDiff
+      return b.paymentAmount - a.paymentAmount
+    })
 
-  return creditCards
-    .map((card): PaymentRecommendation | null => {
-      const amount = Number(card.no_interest_payment || card.minimum_payment || 0)
-      if (Number(card.current_balance || 0) <= 0 || amount <= 0) return null
-
-      const dueDate = formatDateKey(dateForDay(referenceDate, card.payment_due_day))
+  return cardPayments
+    .map((card): PaymentRecommendation => {
+      const amount = card.paymentAmount
+      const dueDate = card.paymentDueDate
       const evaluated = candidateAccounts.map((account) => {
-        const linkedEvents = accountEventsUntil(events, account.id, dueDate)
-        const inflow = linkedEvents
-          .filter((event) => event.direction === 'inflow')
-          .reduce((acc, event) => acc + Number(event.amount || 0), 0)
-        const outflow = linkedEvents
-          .filter((event) => event.direction === 'outflow')
-          .reduce((acc, event) => acc + Number(event.amount || 0), 0)
-        const projectedBeforePayment = Number(account.current_balance || 0) + inflow - outflow
-        const margin = roundMoney(projectedBeforePayment - amount)
+        const reservedOutflow = Number(reservedByAccount.get(account.id) || 0)
+        const projection = projectedAccountBalanceUntil(account, events, dueDate, reservedOutflow)
+        const margin = roundMoney(projection.projectedBeforePayment - amount)
         const sameInstitution = isSameInstitution(account, card.bank)
         const riskLevel = riskFromMargin(margin, amount)
         let score = 0
@@ -242,6 +273,10 @@ export function buildPaymentRecommendations({
         if (sameInstitution) {
           score += 30
           reasons.push('Mismo banco o institución similar; evita transferencias innecesarias.')
+        }
+
+        if (reservedOutflow > 0) {
+          reasons.push(`Ya considera ${moneyText(reservedOutflow)} reservados para pagos anteriores en esta ruta.`)
         }
 
         if (account.account_type === 'savings') {
@@ -283,6 +318,8 @@ export function buildPaymentRecommendations({
         }
       }
 
+      reservedByAccount.set(best.account.id, Number(reservedByAccount.get(best.account.id) || 0) + amount)
+
       return {
         targetId: card.id,
         targetName: card.name,
@@ -298,11 +335,6 @@ export function buildPaymentRecommendations({
         reasons: best.reasons,
         warnings: best.warnings,
       }
-    })
-    .filter((item): item is PaymentRecommendation => Boolean(item))
-    .sort((a, b) => {
-      const riskOrder = { risk: 0, caution: 1, ok: 2 }
-      return riskOrder[a.riskLevel] - riskOrder[b.riskLevel] || new Date(a.dueDate || '').getTime() - new Date(b.dueDate || '').getTime()
     })
 }
 
