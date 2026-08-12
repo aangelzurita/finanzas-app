@@ -23,7 +23,11 @@ import { ArrowLeft, CheckCircle2, CreditCard as CardIcon, Info, Sparkles } from 
 type Account = {
   id: string
   name: string
+  institution?: string | null
   account_type: string
+  current_balance: number
+  is_external?: boolean | null
+  include_in_balance?: boolean | null
 }
 
 type Category = {
@@ -35,6 +39,7 @@ type Category = {
 type CreditCard = {
   id: string
   name: string
+  bank: string | null
   account_id: string
   statement_cutoff_day: number
   payment_due_day: number
@@ -101,6 +106,25 @@ function isTransactionType(value: string | null): value is TransactionType {
   ].includes(value || '')
 }
 
+function normalizeText(value?: string | null) {
+  return (value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+function isSameInstitution(account: Account, card: CreditCard) {
+  const bank = normalizeText(card.bank)
+  if (!bank) return false
+
+  const accountText = `${normalizeText(account.name)} ${normalizeText(account.institution)}`
+  return bank.split(/\s+/).filter(Boolean).some((token) => token.length >= 3 && accountText.includes(token))
+}
+
+function accountAffectsBalance(account: Account) {
+  return account.is_external !== true && account.include_in_balance !== false
+}
+
 export default function NuevoMovimientoPage() {
   const supabase = createClient()
   const searchParams = useSearchParams()
@@ -159,11 +183,11 @@ export default function NuevoMovimientoPage() {
 
     const [{ data: accountsData }, { data: categoriesData }, { data: cardsData }, { data: debtsData }] =
       await Promise.all([
-        supabase.from('accounts').select('id, name, account_type').eq('is_active', true).order('name'),
+        supabase.from('accounts').select('id, name, institution, account_type, current_balance, is_external, include_in_balance').eq('is_active', true).order('name'),
         supabase.from('categories').select('id, name, category_type').eq('is_active', true).order('name'),
         supabase
           .from('credit_cards')
-          .select('id, name, account_id, statement_cutoff_day, payment_due_day, credit_limit, current_balance, minimum_payment, no_interest_payment')
+          .select('id, name, bank, account_id, statement_cutoff_day, payment_due_day, credit_limit, current_balance, minimum_payment, no_interest_payment')
           .eq('is_active', true)
           .order('name'),
         supabase.from('debts').select('id, name').eq('status', 'active').order('name'),
@@ -194,6 +218,11 @@ export default function NuevoMovimientoPage() {
   const liquidAccounts = useMemo(
     () => accounts.filter((a) => ['cash', 'debit', 'savings'].includes(a.account_type)),
     [accounts]
+  )
+
+  const ownLiquidAccounts = useMemo(
+    () => liquidAccounts.filter(accountAffectsBalance),
+    [liquidAccounts]
   )
 
   const allNonCreditAccounts = useMemo(
@@ -277,6 +306,56 @@ export default function NuevoMovimientoPage() {
     ].filter((option) => option.value > 0)
   }, [selectedCreditCard])
 
+  const paymentAmountForSuggestion = useMemo(() => {
+    const typedAmount = Number(amount || 0)
+    if (typedAmount > 0) return typedAmount
+    if (!selectedCreditCard) return 0
+    return Number(selectedCreditCard.no_interest_payment || selectedCreditCard.current_balance || selectedCreditCard.minimum_payment || 0)
+  }, [amount, selectedCreditCard])
+
+  const suggestedPaymentAccount = useMemo(() => {
+    if (!selectedCreditCard || paymentAmountForSuggestion <= 0) return null
+
+    const scored = ownLiquidAccounts.map((account) => {
+      const balance = Number(account.current_balance || 0)
+      const margin = balance - paymentAmountForSuggestion
+      const sameInstitution = isSameInstitution(account, selectedCreditCard)
+      let score = 0
+      const reasons: string[] = []
+      const warnings: string[] = []
+
+      if (margin >= 0) {
+        score += 60
+        reasons.push('Cubre el pago completo sin dividirlo.')
+      } else {
+        score -= 100
+        warnings.push('No cubre el pago completo con el saldo actual.')
+      }
+
+      if (sameInstitution) {
+        score += 30
+        reasons.push('Parece ser del mismo banco; evita transferencias.')
+      }
+
+      if (account.account_type === 'savings') {
+        score -= 15
+        warnings.push('Es ahorro; úsala solo si decides liberar presión.')
+      }
+
+      score += Math.min(25, Math.max(-25, Math.round((margin / Math.max(paymentAmountForSuggestion, 1)) * 12)))
+
+      return {
+        account,
+        margin,
+        score,
+        reasons,
+        warnings,
+      }
+    })
+
+    return scored.sort((a, b) => b.score - a.score)[0] || null
+  }, [ownLiquidAccounts, paymentAmountForSuggestion, selectedCreditCard])
+
   const firstMsiPaymentDate = useMemo(() => {
     if (!selectedCreditCard || !transactionDate) return ''
     return calculateFirstInstallmentPaymentDate(transactionDate, {
@@ -324,6 +403,13 @@ export default function NuevoMovimientoPage() {
     const card = creditCards.find((c) => c.id === creditCardId)
     if (transactionType === 'credit_card_purchase') {
       setSourceAccountId(card?.account_id ?? '')
+    }
+
+    if (transactionType === 'credit_card_payment' && card) {
+      const defaultPaymentAmount = Number(card.no_interest_payment || card.current_balance || card.minimum_payment || 0)
+      if (defaultPaymentAmount > 0) {
+        setAmount(defaultPaymentAmount.toFixed(2))
+      }
     }
   }
 
@@ -1101,7 +1187,7 @@ export default function NuevoMovimientoPage() {
                     required
                     className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
                     value={relatedCreditCardId}
-                    onChange={(e) => setRelatedCreditCardId(e.target.value)}
+                    onChange={(e) => handleCreditCardChange(e.target.value)}
                   >
                     <option value="">Selecciona tarjeta</option>
                     {creditCards.map((card) => (
@@ -1121,10 +1207,46 @@ export default function NuevoMovimientoPage() {
                         Este pago baja tu efectivo y reduce saldo usado de la tarjeta.
                       </h2>
                       <p className="mt-1 text-sm font-bold text-slate-600">
-                        Usa un monto sugerido o captura uno distinto arriba.
+                        Al elegir tarjeta precargamos el pago para no generar intereses si existe. Puedes usar otro monto si lo necesitas.
                       </p>
                     </div>
                   </div>
+                  {suggestedPaymentAccount ? (
+                    <div className="mt-4 rounded-2xl border border-white bg-white p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Cuenta sugerida</p>
+                          <h3 className="mt-1 text-xl font-black text-slate-950">
+                            {suggestedPaymentAccount.account.name}
+                          </h3>
+                          <p className="mt-1 text-sm font-bold text-slate-500">
+                            Saldo actual: {formatMoney(Number(suggestedPaymentAccount.account.current_balance || 0))} · Margen después: {formatMoney(suggestedPaymentAccount.margin)}
+                          </p>
+                          <div className="mt-3 space-y-1">
+                            {suggestedPaymentAccount.reasons.slice(0, 2).map((reason) => (
+                              <p key={reason} className="text-xs font-bold text-slate-600">{reason}</p>
+                            ))}
+                            {suggestedPaymentAccount.warnings.slice(0, 2).map((warning) => (
+                              <p key={warning} className="text-xs font-bold text-amber-700">{warning}</p>
+                            ))}
+                          </div>
+                        </div>
+                        {sourceAccountId !== suggestedPaymentAccount.account.id ? (
+                          <button
+                            type="button"
+                            onClick={() => setSourceAccountId(suggestedPaymentAccount.account.id)}
+                            className="w-fit rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-indigo-700"
+                          >
+                            Usar esta cuenta
+                          </button>
+                        ) : (
+                          <span className="w-fit rounded-2xl bg-emerald-50 px-4 py-3 text-xs font-black uppercase tracking-widest text-emerald-700">
+                            Seleccionada
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                   {suggestedPaymentOptions.length > 0 ? (
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       {suggestedPaymentOptions.map((option) => (
