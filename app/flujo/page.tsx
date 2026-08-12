@@ -21,6 +21,7 @@ import {
   type FinancialCalendarDebt,
   type FinancialCalendarEvent,
   type FinancialCalendarReminder,
+  type FinancialCalendarTransaction,
   type IncomeSchedule,
 } from '@/lib/financial-calendar'
 import { type CreditCardInstallment } from '@/lib/credit-card-installments'
@@ -152,6 +153,7 @@ export default function FlujoPage() {
   const [installments, setInstallments] = useState<CreditCardInstallment[]>([])
   const [cards, setCards] = useState<FinancialCalendarCreditCard[]>([])
   const [debts, setDebts] = useState<FinancialCalendarDebt[]>([])
+  const [transactions, setTransactions] = useState<FinancialCalendarTransaction[]>([])
   const [simulationForm, setSimulationForm] = useState<SimulationForm>({
     amount: '',
     date: formatDateInput(getAppDate()),
@@ -178,6 +180,7 @@ export default function FlujoPage() {
       { data: installmentData, error: installmentError },
       { data: cardData, error: cardError },
       { data: debtsData, error: debtsError },
+      { data: transactionsData, error: transactionsError },
     ] = await Promise.all([
       supabase.from('accounts').select('*').eq('is_active', true),
       supabase.from('income_schedules').select('*').eq('is_active', true).order('next_income_date', { ascending: true }),
@@ -189,6 +192,11 @@ export default function FlujoPage() {
         .select('id, name, credit_limit, current_balance, statement_cutoff_day, payment_due_day, minimum_payment, no_interest_payment')
         .eq('is_active', true),
       supabase.from('debts').select('*').neq('status', 'canceled'),
+      supabase
+        .from('transactions')
+        .select('id, transaction_type, transaction_date, amount, related_credit_card_id, status')
+        .eq('transaction_type', 'credit_card_payment')
+        .gte('transaction_date', addDays(appDate, -31).toISOString()),
     ])
 
     const firstError = [
@@ -199,6 +207,7 @@ export default function FlujoPage() {
       installmentError,
       cardError,
       debtsError,
+      transactionsError,
     ].find(Boolean)
 
     if (firstError) {
@@ -212,8 +221,9 @@ export default function FlujoPage() {
     setInstallments((installmentData as CreditCardInstallment[]) ?? [])
     setCards((cardData as FinancialCalendarCreditCard[]) ?? [])
     setDebts((debtsData as FinancialCalendarDebt[]) ?? [])
+    setTransactions((transactionsData as FinancialCalendarTransaction[]) ?? [])
     setLoading(false)
-  }, [supabase])
+  }, [appDate, supabase])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -251,10 +261,11 @@ export default function FlujoPage() {
         installments,
         creditCards: cards,
         debts: debtsWithPaymentContext,
+        transactions,
         from: appDate,
         to: endDate,
       }),
-    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate, endDate]
+    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, transactions, appDate, endDate]
   )
 
   const attentionEvents = useMemo(
@@ -266,10 +277,11 @@ export default function FlujoPage() {
         installments,
         creditCards: cards,
         debts: debtsWithPaymentContext,
+        transactions,
         from: addDays(appDate, -7),
         to: addDays(appDate, 1),
       }),
-    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate]
+    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, transactions, appDate]
   )
 
   const attentionAlerts = useMemo(

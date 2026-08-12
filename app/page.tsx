@@ -330,10 +330,11 @@ export default function Home() {
             payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
           }
         }),
+        transactions: filteredMonthTransactions,
         from: appDate,
         to: projectionEndDate,
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, appDate, projectionEndDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, filteredMonthTransactions, appDate, projectionEndDate]
   )
 
   const attentionEvents = useMemo(
@@ -351,10 +352,11 @@ export default function Home() {
             payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
           }
         }),
+        transactions: filteredMonthTransactions,
         from: addDays(appDate, -7),
         to: addDays(appDate, 1),
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, appDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, filteredMonthTransactions, appDate]
   )
 
   const attentionAlerts = useMemo(

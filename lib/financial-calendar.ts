@@ -75,6 +75,15 @@ export type FinancialCalendarCreditCard = {
   no_interest_payment: number
 }
 
+export type FinancialCalendarTransaction = {
+  id: string
+  transaction_type: string
+  transaction_date: string
+  amount: number
+  related_credit_card_id?: string | null
+  status?: string | null
+}
+
 export type FinancialCalendarDebt = {
   id: string
   name?: string | null
@@ -92,6 +101,7 @@ type BuildFinancialCalendarOptions = {
   from?: string | Date
   to?: string | Date
   maxEventsPerSchedule?: number
+  transactions?: FinancialCalendarTransaction[]
 }
 
 function parseDateOnly(value: string | Date) {
@@ -442,6 +452,9 @@ export function buildCreditCardPaymentEvents(
 ): FinancialCalendarEvent[] {
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
+  const completedCardPayments = (options.transactions || []).filter(
+    (tx) => (tx.status || 'completed') === 'completed' && tx.transaction_type === 'credit_card_payment'
+  )
 
   return cards
     .flatMap((card) => {
@@ -449,6 +462,16 @@ export function buildCreditCardPaymentEvents(
       if (Number(card.current_balance || 0) <= 0) return []
 
       const dueDate = firstDateOnOrAfter(from, Number(card.payment_due_day || from.getDate()))
+      const paymentWindowStart = addDays(dueDate, -7)
+      const paymentWindowEnd = addDays(dueDate, 1)
+      const alreadyPaid = completedCardPayments.some((tx) => {
+        if (tx.related_credit_card_id !== card.id) return false
+        const txDate = parseDateOnly(tx.transaction_date.slice(0, 10))
+        return txDate >= paymentWindowStart && txDate <= paymentWindowEnd && Number(tx.amount || 0) > 0
+      })
+
+      if (alreadyPaid) return []
+
       return [{
         id: `credit_card_payment-${card.id}-${formatDateOnly(dueDate)}`,
         date: formatDateOnly(dueDate),
@@ -540,6 +563,7 @@ export function buildFinancialCalendarEvents({
   installments = [],
   creditCards = [],
   debts = [],
+  transactions = [],
   from,
   to,
 }: {
@@ -549,6 +573,7 @@ export function buildFinancialCalendarEvents({
   installments?: CreditCardInstallment[]
   creditCards?: FinancialCalendarCreditCard[]
   debts?: FinancialCalendarDebt[]
+  transactions?: FinancialCalendarTransaction[]
   from?: string | Date
   to?: string | Date
 }) {
@@ -557,7 +582,7 @@ export function buildFinancialCalendarEvents({
     ...buildCalendarSource('recordatorios', () => buildReminderEvents(reminders, { from, to })),
     ...buildCalendarSource('recurrentes', () => buildRecurringChargeEvents(recurringCharges, { from, to })),
     ...buildCalendarSource('MSI', () => buildInstallmentEvents(installments, { from, to })),
-    ...buildCalendarSource('pagos de tarjeta', () => buildCreditCardPaymentEvents(creditCards, { from, to })),
+    ...buildCalendarSource('pagos de tarjeta', () => buildCreditCardPaymentEvents(creditCards, { from, to, transactions })),
     ...buildCalendarSource('deudas', () => buildDebtPaymentEvents(debts, { from, to })),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
