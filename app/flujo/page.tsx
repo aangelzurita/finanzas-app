@@ -194,8 +194,8 @@ export default function FlujoPage() {
       supabase.from('debts').select('*').neq('status', 'canceled'),
       supabase
         .from('transactions')
-        .select('id, transaction_type, transaction_date, amount, related_credit_card_id, status')
-        .eq('transaction_type', 'credit_card_payment')
+        .select('id, transaction_type, transaction_date, amount, description, source_account_id, related_credit_card_id, status')
+        .in('transaction_type', ['credit_card_payment', 'expense', 'credit_card_purchase'])
         .gte('transaction_date', addDays(appDate, -31).toISOString()),
     ])
 

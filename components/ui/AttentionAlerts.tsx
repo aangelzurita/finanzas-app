@@ -44,6 +44,8 @@ export function AttentionAlerts({
   const primaryAlert = alerts[0]
   const visibleAlerts = compact ? alerts.slice(0, 2) : alerts.slice(0, 4)
   const Icon = primaryAlert.urgency === 'tomorrow' ? CalendarClock : BellRing
+  const mainActionHref = alerts.length > 1 ? '/flujo' : primaryAlert.actionHref
+  const mainActionLabel = alerts.length > 1 ? 'Ver alertas' : primaryAlert.actionLabel
 
   if (compact) {
     return (
@@ -66,16 +68,28 @@ export function AttentionAlerts({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
-            {visibleAlerts.slice(1).map((alert) => (
-              <span key={alert.id} className="hidden rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 md:inline-flex">
-                {urgencyLabels[alert.urgency]}: {alert.title}
-              </span>
-            ))}
-            <Link href={primaryAlert.actionHref} className="text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
-              {primaryAlert.actionLabel}
+            <Link href={mainActionHref} className="text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
+              {mainActionLabel}
             </Link>
           </div>
         </div>
+        {visibleAlerts.length > 1 && (
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {visibleAlerts.map((alert) => (
+              <div key={alert.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-black text-slate-900">{alert.title}</p>
+                  <p className="text-[11px] font-bold text-slate-500">
+                    {urgencyLabels[alert.urgency]} · {formatDate(alert.date)}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-xs font-black ${alert.amount > 0 && alert.affectsCash ? 'text-rose-600' : alert.amount > 0 ? 'text-sky-600' : 'text-slate-500'}`}>
+                  {alert.amount > 0 ? formatMoney(alert.amount) : 'Sin monto'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     )
   }
@@ -96,10 +110,10 @@ export function AttentionAlerts({
           </div>
         </div>
         <Link
-          href={primaryAlert.actionHref}
+          href={mainActionHref}
           className="w-fit rounded-xl bg-slate-950 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800"
         >
-          {primaryAlert.actionLabel}
+          {mainActionLabel}
         </Link>
       </div>
 

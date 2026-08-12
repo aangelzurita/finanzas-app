@@ -80,6 +80,8 @@ export type FinancialCalendarTransaction = {
   transaction_type: string
   transaction_date: string
   amount: number
+  description?: string | null
+  source_account_id?: string | null
   related_credit_card_id?: string | null
   status?: string | null
 }
@@ -165,6 +167,51 @@ function normalizeConfidence(confidence: IncomeScheduleConfidence): FinancialCal
   if (confidence === 'confirmed') return 'confirmed'
   if (confidence === 'tentative') return 'estimated'
   return 'estimated'
+}
+
+function isCompletedTransaction(tx: FinancialCalendarTransaction) {
+  return (tx.status || 'completed') === 'completed'
+}
+
+function isSameAmount(a: number, b: number) {
+  return Math.abs(Number(a || 0) - Number(b || 0)) <= 1
+}
+
+function isDateWithinDays(date: Date, target: Date, daysBefore: number, daysAfter: number) {
+  return date >= addDays(target, -daysBefore) && date <= addDays(target, daysAfter)
+}
+
+function isRecurringChargeCovered(
+  charge: RecurringCharge,
+  occurrenceDate: Date,
+  transactions: FinancialCalendarTransaction[]
+) {
+  const amount = Number(charge.amount || 0)
+  if (amount <= 0) return false
+
+  return transactions.some((tx) => {
+    if (!isCompletedTransaction(tx)) return false
+    if (!isSameAmount(Number(tx.amount || 0), amount)) return false
+
+    const txDate = parseDateOnly(tx.transaction_date.slice(0, 10))
+    if (!isDateWithinDays(txDate, occurrenceDate, 3, 3)) return false
+
+    if (charge.payment_method_type === 'account') {
+      if (tx.transaction_type !== 'expense') return false
+      if (charge.account_id && tx.source_account_id && tx.source_account_id !== charge.account_id) return false
+      return true
+    }
+
+    if (charge.payment_method_type === 'credit_card') {
+      if (tx.transaction_type !== 'credit_card_purchase') return false
+      if (charge.credit_card_id && tx.related_credit_card_id && tx.related_credit_card_id !== charge.credit_card_id) {
+        return false
+      }
+      return true
+    }
+
+    return false
+  })
 }
 
 function getCustomDayCandidates(schedule: IncomeSchedule, cursor: Date) {
@@ -365,6 +412,7 @@ export function buildRecurringChargeEvents(
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
   const maxEventsPerSchedule = options.maxEventsPerSchedule ?? 24
+  const transactions = options.transactions || []
 
   return charges.flatMap((charge) => {
     if (!charge.is_active || !charge.next_charge_date || Number(charge.amount || 0) <= 0) return []
@@ -383,6 +431,12 @@ export function buildRecurringChargeEvents(
     }
 
     while (cursor <= to && guard < maxEventsPerSchedule) {
+      if (isRecurringChargeCovered(charge, cursor, transactions)) {
+        cursor = nextRecurringDate(charge.frequency, charge.charge_day, cursor)
+        guard += 1
+        continue
+      }
+
       events.push({
         id: `recurring_charge-${charge.id}-${formatDateOnly(cursor)}`,
         date: formatDateOnly(cursor),
@@ -580,7 +634,7 @@ export function buildFinancialCalendarEvents({
   const events = [
     ...buildCalendarSource('ingresos programados', () => buildIncomeScheduleEvents(incomeSchedules, { from, to })),
     ...buildCalendarSource('recordatorios', () => buildReminderEvents(reminders, { from, to })),
-    ...buildCalendarSource('recurrentes', () => buildRecurringChargeEvents(recurringCharges, { from, to })),
+    ...buildCalendarSource('recurrentes', () => buildRecurringChargeEvents(recurringCharges, { from, to, transactions })),
     ...buildCalendarSource('MSI', () => buildInstallmentEvents(installments, { from, to })),
     ...buildCalendarSource('pagos de tarjeta', () => buildCreditCardPaymentEvents(creditCards, { from, to, transactions })),
     ...buildCalendarSource('deudas', () => buildDebtPaymentEvents(debts, { from, to })),
