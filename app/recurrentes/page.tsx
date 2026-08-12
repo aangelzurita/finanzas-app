@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { getAppDate } from '@/lib/app-date'
 import { formatMoney, friendlyFrequency } from '@/lib/utils'
 import { KpiCard } from '@/components/ui/KpiCard'
 import {
@@ -27,6 +28,7 @@ type CreditCard = {
 
 export default function RecurrentesPage() {
   const supabase = createClient()
+  const appDate = useMemo(() => getAppDate(), [])
 
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
@@ -89,8 +91,8 @@ export default function RecurrentesPage() {
   }, [cards])
 
   const dueCharges = useMemo(
-    () => charges.filter((charge) => isRecurringChargeDue(charge)),
-    [charges]
+    () => charges.filter((charge) => isRecurringChargeDue(charge, appDate)),
+    [appDate, charges]
   )
 
   const autoDueCharges = useMemo(
@@ -106,10 +108,10 @@ export default function RecurrentesPage() {
   const pendingAmount = useMemo(
     () =>
       dueCharges.reduce(
-        (acc, charge) => acc + (charge.affects_cash === false ? 0 : getPendingRecurringAmount(charge)),
+        (acc, charge) => acc + (charge.affects_cash === false ? 0 : getPendingRecurringAmount(charge, appDate)),
         0
       ),
-    [dueCharges]
+    [appDate, dueCharges]
   )
 
   const paymentMethodLabel = (charge: RecurringCharge) => {
@@ -146,7 +148,7 @@ export default function RecurrentesPage() {
     setMessage('')
 
     try {
-      await processRecurringCharges(supabase, autoDueCharges)
+      await processRecurringCharges(supabase, autoDueCharges, appDate)
       await initialize()
       setMessage('Cargos domiciliados generados como movimientos reales.')
     } catch (error) {
@@ -166,7 +168,7 @@ export default function RecurrentesPage() {
     setMessage('')
 
     try {
-      await markRecurringChargeCovered(supabase, charge)
+      await markRecurringChargeCovered(supabase, charge, appDate)
       await initialize()
       setMessage(`"${charge.name}" se marcó como cubierto. No se creó movimiento ni se tocaron saldos.`)
     } catch (error) {
@@ -301,9 +303,9 @@ export default function RecurrentesPage() {
                       <p className="text-sm font-medium text-slate-700">
                         {charge.next_charge_date ? new Date(charge.next_charge_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '---'}
                       </p>
-                      {getPendingRecurringOccurrences(charge).length > 0 ? (
+                      {getPendingRecurringOccurrences(charge, appDate).length > 0 ? (
                         <p className="text-xs font-bold text-violet-600 mt-1">
-                          Pendientes: {getPendingRecurringOccurrences(charge).length}
+                          Pendientes: {getPendingRecurringOccurrences(charge, appDate).length}
                         </p>
                       ) : null}
                     </td>
@@ -326,7 +328,7 @@ export default function RecurrentesPage() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex flex-wrap gap-2 justify-end">
-                        {isRecurringChargeDue(charge) ? (
+                        {isRecurringChargeDue(charge, appDate) ? (
                           <button
                             type="button"
                             onClick={() => void handleMarkCovered(charge)}
@@ -337,7 +339,7 @@ export default function RecurrentesPage() {
                             MARCAR CUBIERTO
                           </button>
                         ) : null}
-                        {charge.affects_cash !== false && charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge) ? (
+                        {charge.affects_cash !== false && charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge, appDate) ? (
                           <Link
                             href={`/recurrentes/${charge.id}/pagar`}
                             className="rounded-xl border-2 border-amber-100 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-500 hover:text-white transition-all active:scale-95"

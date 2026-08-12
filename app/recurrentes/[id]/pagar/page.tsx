@@ -9,7 +9,7 @@ import {
   settleRecurringCharge,
   type RecurringCharge,
 } from '@/lib/recurring-charges'
-import { formatAppDateKey } from '@/lib/app-date'
+import { formatAppDateKey, getAppDate } from '@/lib/app-date'
 
 type Account = {
   id: string
@@ -32,6 +32,7 @@ export default function PagarRecurrentePage() {
   const searchParams = useSearchParams()
   const params = useParams()
   const id = params?.id as string
+  const appDate = useMemo(() => getAppDate(), [])
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo =
     requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
@@ -48,7 +49,7 @@ export default function PagarRecurrentePage() {
   const [paymentMethodType, setPaymentMethodType] = useState<'account' | 'credit_card'>('credit_card')
   const [accountId, setAccountId] = useState('')
   const [creditCardId, setCreditCardId] = useState('')
-  const [transactionDate, setTransactionDate] = useState(() => localDateKey())
+  const [transactionDate, setTransactionDate] = useState(() => localDateKey(getAppDate()))
 
   useEffect(() => {
     void initialize()
@@ -107,8 +108,8 @@ export default function PagarRecurrentePage() {
   }
 
   const dueDates = useMemo(
-    () => (charge ? getPendingRecurringOccurrences(charge) : []),
-    [charge]
+    () => (charge ? getPendingRecurringOccurrences(charge, appDate) : []),
+    [appDate, charge]
   )
 
   const fail = (text: string) => {
@@ -154,7 +155,7 @@ export default function PagarRecurrentePage() {
         charge,
         paymentMethodType,
         paymentMethodType === 'account' ? accountId : creditCardId,
-        { transactionDate }
+        { referenceDate: appDate, transactionDate }
       )
 
       setMessage('Recurrente liquidado correctamente.')

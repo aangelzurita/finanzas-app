@@ -6,6 +6,7 @@ import { Bell, CalendarClock, CreditCard, Repeat, ReceiptText } from 'lucide-rea
 import { MainNavigation } from '@/components/ui/MainNavigation'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { createClient } from '@/lib/supabase-browser'
+import { getAppDate } from '@/lib/app-date'
 import { formatDate, formatMoney } from '@/lib/utils'
 import {
   buildUpcomingCardPayments,
@@ -28,6 +29,7 @@ type Account = {
 
 export default function ObligacionesPage() {
   const supabase = createClient()
+  const appDate = useMemo(() => getAppDate(), [])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [cards, setCards] = useState<DashboardCreditCard[]>([])
@@ -95,8 +97,8 @@ export default function ObligacionesPage() {
     [debts]
   )
   const recurringDue = useMemo(
-    () => recurring.filter((charge) => getPendingRecurringAmount(charge) > 0),
-    [recurring]
+    () => recurring.filter((charge) => getPendingRecurringAmount(charge, appDate) > 0),
+    [appDate, recurring]
   )
   const reminderAmount = useMemo(
     () => reminders.reduce((acc, reminder) => acc + Number(reminder.amount || 0), 0),
@@ -260,7 +262,7 @@ export default function ObligacionesPage() {
                       <p className="font-black text-slate-950">{charge.name}</p>
                       <p className="mt-1 text-sm font-semibold text-slate-500">{charge.next_charge_date ? formatDate(charge.next_charge_date) : 'Sin fecha'} · recurrente</p>
                     </div>
-                    <p className="font-black text-amber-600">{formatMoney(getPendingRecurringAmount(charge))}</p>
+                    <p className="font-black text-amber-600">{formatMoney(getPendingRecurringAmount(charge, appDate))}</p>
                   </div>
                 </Link>
               ))}

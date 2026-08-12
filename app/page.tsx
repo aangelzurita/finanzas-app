@@ -306,11 +306,11 @@ export default function Home() {
         debts,
         filteredInstallmentsForDashboard,
         budgetRows,
-        getPendingRecurringAmount,
+        (charge) => getPendingRecurringAmount(charge, appDate),
         pendingInstallmentAmountForDashboard,
         msiPurchaseIds
       ),
-    [accounts, filteredMonthTransactions, recurring, debts, filteredInstallmentsForDashboard, budgetRows, pendingInstallmentAmountForDashboard, msiPurchaseIds]
+    [accounts, filteredMonthTransactions, recurring, debts, filteredInstallmentsForDashboard, budgetRows, appDate, pendingInstallmentAmountForDashboard, msiPurchaseIds]
   )
 
   const projectionEndDate = useMemo(() => getEndOfCurrentMonth(appDate), [appDate])
