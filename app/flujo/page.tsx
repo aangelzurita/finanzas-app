@@ -4,7 +4,9 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MainNavigation } from '@/components/ui/MainNavigation'
+import { AttentionAlerts } from '@/components/ui/AttentionAlerts'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
+import { buildAttentionAlerts } from '@/lib/attention-alerts'
 import {
   buildSmartPurchaseAdvisor,
   simulateCashflowDecision,
@@ -255,6 +257,26 @@ export default function FlujoPage() {
     [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate, endDate]
   )
 
+  const attentionEvents = useMemo(
+    () =>
+      buildFinancialCalendarEvents({
+        incomeSchedules,
+        reminders,
+        recurringCharges: recurring,
+        installments,
+        creditCards: cards,
+        debts: debtsWithPaymentContext,
+        from: addDays(appDate, -7),
+        to: addDays(appDate, 1),
+      }),
+    [incomeSchedules, reminders, recurring, installments, cards, debtsWithPaymentContext, appDate]
+  )
+
+  const attentionAlerts = useMemo(
+    () => buildAttentionAlerts(attentionEvents, appDate),
+    [attentionEvents, appDate]
+  )
+
   const projectedEvents = useMemo(
     () => simulationResult ? [...events, ...simulationResult.simulatedEvents] : events,
     [events, simulationResult]
@@ -407,6 +429,8 @@ export default function FlujoPage() {
             {message}
           </div>
         )}
+
+        <AttentionAlerts alerts={attentionAlerts} title="Atención en tu flujo" className="mb-6" />
 
         <section className="mb-6 grid gap-4 lg:grid-cols-3">
           <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">

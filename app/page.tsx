@@ -22,6 +22,7 @@ import {
 } from '@/lib/dashboard'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { MainNavigation } from '@/components/ui/MainNavigation'
+import { AttentionAlerts } from '@/components/ui/AttentionAlerts'
 import {
   getPendingInstallmentAmount,
   syncInstallmentPlans,
@@ -35,6 +36,7 @@ import {
   type IncomeSchedule,
 } from '@/lib/financial-calendar'
 import { buildCashflowProjection } from '@/lib/cashflow-projection'
+import { buildAttentionAlerts } from '@/lib/attention-alerts'
 import { adviseCreditCards } from '@/lib/credit-card-advisor'
 import {
   CreditCard as CardIcon,
@@ -62,6 +64,12 @@ function monthRange(monthKey: string) {
   const start = new Date(year, month - 1, 1)
   const end = new Date(year, month, 0, 23, 59, 59, 999)
   return { start, end, month, year }
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value)
+  next.setDate(next.getDate() + days)
+  return next
 }
 
 function sourceLabel(sourceType: FinancialCalendarEvent['sourceType']) {
@@ -326,6 +334,32 @@ export default function Home() {
         to: projectionEndDate,
       }),
     [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, appDate, projectionEndDate]
+  )
+
+  const attentionEvents = useMemo(
+    () =>
+      buildFinancialCalendarEvents({
+        incomeSchedules,
+        reminders: projectionReminders,
+        recurringCharges: recurring,
+        installments: filteredInstallmentsForDashboard,
+        creditCards,
+        debts: debts.map((debt) => {
+          const paymentAccount = accounts.find((account) => account.id === debt.payment_account_id)
+          return {
+            ...debt,
+            payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
+          }
+        }),
+        from: addDays(appDate, -7),
+        to: addDays(appDate, 1),
+      }),
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, appDate]
+  )
+
+  const attentionAlerts = useMemo(
+    () => buildAttentionAlerts(attentionEvents, appDate),
+    [attentionEvents, appDate]
   )
 
   const cashflowProjection = useMemo(
@@ -729,6 +763,8 @@ export default function Home() {
         )}
 
         <MainNavigation />
+
+        <AttentionAlerts alerts={attentionAlerts} compact className="mb-6" />
 
         <section className="mb-6 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/8 md:p-5">
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
