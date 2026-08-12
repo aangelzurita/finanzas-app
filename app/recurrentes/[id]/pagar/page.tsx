@@ -32,7 +32,6 @@ export default function PagarRecurrentePage() {
   const searchParams = useSearchParams()
   const params = useParams()
   const id = params?.id as string
-  const appDate = useMemo(() => getAppDate(), [])
   const requestedDueDate = searchParams.get('dueDate') || ''
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo =
@@ -47,10 +46,17 @@ export default function PagarRecurrentePage() {
   const [charge, setCharge] = useState<RecurringCharge | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [cards, setCards] = useState<CreditCard[]>([])
+  const [appDate, setAppDate] = useState<Date | null>(null)
   const [paymentMethodType, setPaymentMethodType] = useState<'account' | 'credit_card'>('credit_card')
   const [accountId, setAccountId] = useState('')
   const [creditCardId, setCreditCardId] = useState('')
   const [transactionDate, setTransactionDate] = useState(() => localDateKey(getAppDate()))
+
+  useEffect(() => {
+    const currentAppDate = getAppDate()
+    setAppDate(currentAppDate)
+    setTransactionDate(localDateKey(currentAppDate))
+  }, [])
 
   useEffect(() => {
     void initialize()
@@ -111,6 +117,7 @@ export default function PagarRecurrentePage() {
   const dueDates = useMemo(
     () => {
       if (!charge) return []
+      if (!appDate) return []
 
       const pending = getPendingRecurringOccurrences(charge, appDate)
       if (pending.length > 0) return pending
@@ -124,6 +131,7 @@ export default function PagarRecurrentePage() {
     },
     [appDate, charge, requestedDueDate]
   )
+  const isDue = dueDates.length > 0
 
   const fail = (text: string) => {
     setMessage(text)
@@ -139,6 +147,11 @@ export default function PagarRecurrentePage() {
 
     if (!charge) {
       fail('No se encontró el recurrente.')
+      return
+    }
+
+    if (!appDate) {
+      fail('La fecha activa de la app todavía está cargando.')
       return
     }
 
@@ -236,13 +249,18 @@ export default function PagarRecurrentePage() {
       <section className="max-w-3xl mx-auto px-6 -mt-8">
         <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-2xl">
           <div className="mb-8 rounded-[2rem] border border-slate-100 bg-slate-50 p-6">
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Recurrente vencido</p>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+              {isDue ? 'Recurrente vencido' : 'Recurrente sin vencimiento pendiente'}
+            </p>
             <h2 className="mt-2 text-3xl font-black text-slate-900">{charge.name}</h2>
             <p className="mt-2 text-sm text-slate-500">
               Monto: <span className="font-bold text-slate-900">${Number(charge.amount || 0).toFixed(2)}</span>
             </p>
             <p className="mt-1 text-sm text-slate-500">
               Fecha pendiente: <span className="font-bold text-slate-900">{dueDates[0] || '---'}</span>
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Fecha activa de la app: <span className="font-bold text-slate-900">{appDate ? localDateKey(appDate) : 'Cargando...'}</span>
             </p>
             <p className="mt-3 text-xs font-bold text-slate-500">
               La fecha pendiente identifica el cobro vencido. La fecha real se usará en el movimiento que se va a crear.
@@ -304,10 +322,10 @@ export default function PagarRecurrentePage() {
             <div className="pt-4">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || !appDate || !isDue}
                 className="w-full rounded-[2rem] bg-slate-900 py-6 text-xl font-black text-white hover:bg-slate-800 transition-all active:scale-[0.98] shadow-xl disabled:opacity-50"
               >
-                {saving ? 'Liquidando...' : 'Registrar pago'}
+                {saving ? 'Liquidando...' : isDue ? 'Registrar pago' : 'Sin cobro vencido'}
               </button>
 
               {message && (
