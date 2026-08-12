@@ -33,6 +33,7 @@ export default function PagarRecurrentePage() {
   const params = useParams()
   const id = params?.id as string
   const appDate = useMemo(() => getAppDate(), [])
+  const requestedDueDate = searchParams.get('dueDate') || ''
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo =
     requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
@@ -108,8 +109,20 @@ export default function PagarRecurrentePage() {
   }
 
   const dueDates = useMemo(
-    () => (charge ? getPendingRecurringOccurrences(charge, appDate) : []),
-    [appDate, charge]
+    () => {
+      if (!charge) return []
+
+      const pending = getPendingRecurringOccurrences(charge, appDate)
+      if (pending.length > 0) return pending
+
+      if (!requestedDueDate) return []
+      const parsed = new Date(`${requestedDueDate.slice(0, 10)}T12:00:00`)
+      const today = new Date(appDate.getFullYear(), appDate.getMonth(), appDate.getDate())
+      if (Number.isNaN(parsed.getTime()) || parsed > today) return []
+
+      return [requestedDueDate.slice(0, 10)]
+    },
+    [appDate, charge, requestedDueDate]
   )
 
   const fail = (text: string) => {
@@ -155,7 +168,7 @@ export default function PagarRecurrentePage() {
         charge,
         paymentMethodType,
         paymentMethodType === 'account' ? accountId : creditCardId,
-        { referenceDate: appDate, transactionDate }
+        { referenceDate: appDate, transactionDate, dueDate: dueDates[0] }
       )
 
       setMessage('Recurrente liquidado correctamente.')

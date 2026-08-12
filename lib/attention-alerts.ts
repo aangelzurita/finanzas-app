@@ -81,7 +81,11 @@ function actionForEvent(event: FinancialCalendarEvent) {
   }
 
   if (event.sourceType === 'recurring_charge' && event.sourceId) {
-    return { label: 'Atender recurrente', href: `/recurrentes/${event.sourceId}/pagar?returnTo=/flujo` }
+    const params = new URLSearchParams({
+      returnTo: '/flujo',
+      dueDate: event.date,
+    })
+    return { label: 'Atender recurrente', href: `/recurrentes/${event.sourceId}/pagar?${params.toString()}` }
   }
 
   return actionForSource(event.sourceType)

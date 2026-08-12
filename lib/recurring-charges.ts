@@ -295,6 +295,7 @@ export async function settleRecurringCharge(
   options: {
     referenceDate?: Date
     transactionDate?: string
+    dueDate?: string
   } = {}
 ) {
   if (!charge.is_active || !charge.next_charge_date) {
@@ -310,7 +311,15 @@ export async function settleRecurringCharge(
   }
 
   const referenceDate = options.referenceDate ?? new Date()
-  const dueDates = getPendingRecurringOccurrences(charge, referenceDate)
+  let dueDates = getPendingRecurringOccurrences(charge, referenceDate)
+  if (dueDates.length === 0 && options.dueDate) {
+    const requestedDueDate = parseDateOnly(options.dueDate)
+    const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate())
+    if (!Number.isNaN(requestedDueDate.getTime()) && requestedDueDate <= today) {
+      dueDates = [formatDateOnly(requestedDueDate)]
+    }
+  }
+
   if (dueDates.length === 0) {
     throw new Error('Este recurrente todavía no vence.')
   }
