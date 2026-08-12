@@ -23,10 +23,14 @@ const severityClasses: Record<AttentionAlert['severity'], string> = {
 }
 
 function summaryText(alerts: AttentionAlert[]) {
+  const cardDueToday = alerts.filter(
+    (alert) => alert.sourceType === 'credit_card_payment' && alert.urgency === 'today'
+  ).length
   const overdue = alerts.filter((alert) => alert.urgency === 'overdue').length
   const today = alerts.filter((alert) => alert.urgency === 'today').length
   const tomorrow = alerts.filter((alert) => alert.urgency === 'tomorrow').length
 
+  if (cardDueToday > 0) return `${cardDueToday} pago${cardDueToday === 1 ? '' : 's'} de TDC vence${cardDueToday === 1 ? '' : 'n'} hoy`
   if (overdue > 0) return `${overdue} vencido${overdue === 1 ? '' : 's'} por atender`
   if (today > 0) return `${today} pendiente${today === 1 ? '' : 's'} para hoy`
   if (tomorrow > 0) return `${tomorrow} aviso${tomorrow === 1 ? '' : 's'} para mañana`

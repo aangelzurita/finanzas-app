@@ -160,6 +160,25 @@ function firstDateOnOrAfter(from: Date, preferredDay: number) {
   return addMonthsOnDay(current, preferredDay)
 }
 
+function previousDateForDay(beforeDate: Date, preferredDay: number) {
+  let candidate = new Date(
+    beforeDate.getFullYear(),
+    beforeDate.getMonth(),
+    safeDayForMonth(beforeDate.getFullYear(), beforeDate.getMonth(), preferredDay)
+  )
+
+  if (candidate >= beforeDate) {
+    const previousMonth = new Date(beforeDate.getFullYear(), beforeDate.getMonth() - 1, 1)
+    candidate = new Date(
+      previousMonth.getFullYear(),
+      previousMonth.getMonth(),
+      safeDayForMonth(previousMonth.getFullYear(), previousMonth.getMonth(), preferredDay)
+    )
+  }
+
+  return candidate
+}
+
 function isWithinWindow(date: Date, from: Date, to: Date) {
   return date >= from && date <= to
 }
@@ -521,13 +540,18 @@ export function buildCreditCardPaymentEvents(
       if (Number(card.current_balance || 0) <= 0) return []
 
       const dueDate = firstDateOnOrAfter(from, Number(card.payment_due_day || from.getDate()))
-      const paymentWindowStart = addDays(dueDate, -7)
+      const cutoffDay = Number(card.statement_cutoff_day || 0)
+      const paymentWindowStart =
+        cutoffDay > 0 ? addDays(previousDateForDay(dueDate, cutoffDay), 1) : addDays(dueDate, -35)
       const paymentWindowEnd = addDays(dueDate, 1)
-      const alreadyPaid = completedCardPayments.some((tx) => {
-        if (tx.related_credit_card_id !== card.id) return false
+      const paidInWindow = completedCardPayments.reduce((acc, tx) => {
+        if (tx.related_credit_card_id !== card.id) return acc
         const txDate = parseDateOnly(tx.transaction_date.slice(0, 10))
-        return txDate >= paymentWindowStart && txDate <= paymentWindowEnd && Number(tx.amount || 0) > 0
-      })
+        if (txDate < paymentWindowStart || txDate > paymentWindowEnd) return acc
+        return acc + Number(tx.amount || 0)
+      }, 0)
+      const remainingAmount = amount > 0 ? Math.max(0, amount - paidInWindow) : amount
+      const alreadyPaid = amount > 0 ? remainingAmount <= 1 : paidInWindow > 0
 
       if (alreadyPaid) return []
 
@@ -535,14 +559,14 @@ export function buildCreditCardPaymentEvents(
         id: `credit_card_payment-${card.id}-${formatDateOnly(dueDate)}`,
         sourceId: card.id,
         date: formatDateOnly(dueDate),
-        title: amount > 0 ? `Pago ${card.name}` : `Pago ${card.name} pendiente por confirmar`,
-        amount,
-        direction: amount > 0 ? 'outflow' as const : 'neutral' as const,
+        title: remainingAmount > 0 ? `Pago ${card.name}` : `Pago ${card.name} pendiente por confirmar`,
+        amount: remainingAmount,
+        direction: remainingAmount > 0 ? 'outflow' as const : 'neutral' as const,
         sourceType: 'credit_card_payment' as const,
         creditCardId: card.id,
         confidence: 'estimated' as const,
-        eventStatus: amount > 0 ? 'estimated' as const : 'pending_confirmation' as const,
-        affectsCash: amount > 0,
+        eventStatus: remainingAmount > 0 ? 'estimated' as const : 'pending_confirmation' as const,
+        affectsCash: remainingAmount > 0,
         affectsBudget: false,
       }]
     })

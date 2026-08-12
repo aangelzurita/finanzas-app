@@ -95,8 +95,20 @@ function descriptionFor(event: FinancialCalendarEvent, urgency: AttentionAlertUr
   }
 
   if (event.sourceType === 'credit_card_payment') {
+    if (urgency === 'today') {
+      return event.amount > 0
+        ? 'Hoy es la fecha límite de pago. Atiéndelo hoy para evitar intereses o atraso.'
+        : 'Hoy es fecha límite, pero falta confirmar el monto real del corte.'
+    }
+
+    if (urgency === 'overdue') {
+      return event.amount > 0
+        ? 'Este pago ya aparece vencido. Si ya lo pagaste, registra o revisa el pago asociado a esta tarjeta.'
+        : 'Este pago venció sin monto confirmado. Revisa el corte.'
+    }
+
     return event.amount > 0
-      ? 'Pago de tarjeta con monto registrado. Atiéndelo para evitar intereses o atrasos.'
+      ? 'Pago de tarjeta próximo. Prepáralo antes de la fecha límite.'
       : 'Pago de tarjeta pendiente por confirmar. Revisa el corte y captura el monto real.'
   }
 
@@ -162,6 +174,16 @@ export function buildAttentionAlerts(
     })
     .filter((alert): alert is AttentionAlert => Boolean(alert))
     .sort((a, b) => {
+      const priority = (alert: AttentionAlert) => {
+        if (alert.sourceType === 'credit_card_payment' && alert.urgency === 'today') return 0
+        if (alert.sourceType === 'credit_card_payment' && alert.urgency === 'overdue') return 1
+        if (alert.urgency === 'today') return 2
+        if (alert.urgency === 'overdue') return 3
+        return 4
+      }
+      const priorityDiff = priority(a) - priority(b)
+      if (priorityDiff !== 0) return priorityDiff
+
       const urgencyOrder: Record<AttentionAlertUrgency, number> = { overdue: 0, today: 1, tomorrow: 2 }
       const urgencyDiff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency]
       if (urgencyDiff !== 0) return urgencyDiff

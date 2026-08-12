@@ -55,7 +55,7 @@ type InstallmentPlan = CreditCardInstallment
 type HealthTone = 'emerald' | 'amber' | 'rose' | 'slate'
 
 function currentMonthKey() {
-  const now = new Date()
+  const now = getAppDate()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
@@ -134,6 +134,7 @@ export default function Home() {
   const [session, setSession] = useState<{ user: { email?: string | null } } | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [monthTransactions, setMonthTransactions] = useState<Transaction[]>([])
+  const [projectionTransactions, setProjectionTransactions] = useState<Transaction[]>([])
   const [projectionReminders, setProjectionReminders] = useState<Reminder[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [recurring, setRecurring] = useState<RecurringCharge[]>([])
@@ -144,18 +145,20 @@ export default function Home() {
   const [incomeSchedules, setIncomeSchedules] = useState<IncomeSchedule[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const selectedMonth = currentMonthKey()
   const appDate = useMemo(() => getAppDate(), [])
+  const selectedMonth = useMemo(() => currentMonthKey(), [])
 
   const loadDashboard = useCallback(async () => {
     setLoadError('')
     setLoading(true)
     try {
       const { start, end, month: currentMonth, year: currentYear } = monthRange(selectedMonth)
+      const projectionQueryEnd = getEndOfCurrentMonth(appDate)
 
       const [
         { data: accountsData, error: accountsError },
         { data: monthTxData, error: monthTxError },
+        { data: projectionTxData, error: projectionTxError },
         { data: projectionRemindersData, error: projectionRemindersError },
         { data: categoriesData, error: categoriesError },
         { data: recurringData, error: recurringError },
@@ -171,6 +174,12 @@ export default function Home() {
           .select('*')
           .gte('transaction_date', start.toISOString())
           .lte('transaction_date', end.toISOString()),
+        supabase
+          .from('transactions')
+          .select('*')
+          .in('transaction_type', ['credit_card_payment', 'expense', 'credit_card_purchase'])
+          .gte('transaction_date', addDays(appDate, -60).toISOString())
+          .lte('transaction_date', addDays(projectionQueryEnd, 1).toISOString()),
         supabase.from('reminders').select('*').eq('status', 'pending').order('due_date', { ascending: true }),
         supabase.from('categories').select('*'),
         supabase.from('recurring_charges').select('*').eq('is_active', true),
@@ -196,6 +205,7 @@ export default function Home() {
       const firstError = [
         accountsError,
         monthTxError,
+        projectionTxError,
         projectionRemindersError,
         categoriesError,
         recurringError,
@@ -212,6 +222,7 @@ export default function Home() {
 
       setAccounts((accountsData as Account[]) ?? [])
       setMonthTransactions((monthTxData as Transaction[]) ?? [])
+      setProjectionTransactions((projectionTxData as Transaction[]) ?? [])
       setProjectionReminders((projectionRemindersData as Reminder[]) ?? [])
       setCategories((categoriesData as Category[]) ?? [])
       setRecurring((recurringData as RecurringCharge[]) ?? [])
@@ -230,7 +241,7 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
-  }, [selectedMonth, supabase])
+  }, [appDate, selectedMonth, supabase])
 
   const initialize = useCallback(async () => {
     setLoading(true)
@@ -330,11 +341,11 @@ export default function Home() {
             payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
           }
         }),
-        transactions: filteredMonthTransactions,
+        transactions: projectionTransactions,
         from: appDate,
         to: projectionEndDate,
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, filteredMonthTransactions, appDate, projectionEndDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, projectionTransactions, appDate, projectionEndDate]
   )
 
   const attentionEvents = useMemo(
@@ -352,11 +363,11 @@ export default function Home() {
             payment_account_is_external: paymentAccount?.is_external === true || paymentAccount?.include_in_balance === false,
           }
         }),
-        transactions: filteredMonthTransactions,
+        transactions: projectionTransactions,
         from: addDays(appDate, -7),
         to: addDays(appDate, 1),
       }),
-    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, filteredMonthTransactions, appDate]
+    [incomeSchedules, projectionReminders, recurring, filteredInstallmentsForDashboard, creditCards, debts, accounts, projectionTransactions, appDate]
   )
 
   const attentionAlerts = useMemo(
