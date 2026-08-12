@@ -151,6 +151,14 @@ export function buildAttentionAlerts(
       const diff = daysBetween(today, eventDate)
 
       if (diff > 1) return null
+      if (
+        event.sourceType === 'credit_card_payment' &&
+        Number(event.amount || 0) <= 0 &&
+        event.eventStatus === 'pending_confirmation' &&
+        diff < 0
+      ) {
+        return null
+      }
 
       const urgency: AttentionAlertUrgency =
         diff < 0 ? 'overdue' : diff === 0 ? 'today' : 'tomorrow'
