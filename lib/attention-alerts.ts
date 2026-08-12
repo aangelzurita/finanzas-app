@@ -58,6 +58,35 @@ function actionForSource(sourceType: FinancialCalendarEvent['sourceType']) {
   return actions[sourceType]
 }
 
+function actionForEvent(event: FinancialCalendarEvent) {
+  if (event.sourceType === 'credit_card_payment') {
+    const cardParam = event.creditCardId || event.sourceId
+    const params = new URLSearchParams({
+      type: 'credit_card_payment',
+      returnTo: '/flujo',
+    })
+
+    if (cardParam) params.set('creditCard', cardParam)
+    return { label: 'Pagar tarjeta', href: `/movimientos/nuevo?${params.toString()}` }
+  }
+
+  if (event.sourceType === 'debt_payment') {
+    const params = new URLSearchParams({
+      type: 'debt_payment',
+      returnTo: '/flujo',
+    })
+
+    if (event.debtId || event.sourceId) params.set('debt', event.debtId || event.sourceId || '')
+    return { label: 'Pagar deuda', href: `/movimientos/nuevo?${params.toString()}` }
+  }
+
+  if (event.sourceType === 'recurring_charge' && event.sourceId) {
+    return { label: 'Atender recurrente', href: `/recurrentes/${event.sourceId}/pagar?returnTo=/flujo` }
+  }
+
+  return actionForSource(event.sourceType)
+}
+
 function descriptionFor(event: FinancialCalendarEvent, urgency: AttentionAlertUrgency) {
   if (event.sourceType === 'income_schedule') {
     return urgency === 'overdue'
@@ -115,7 +144,7 @@ export function buildAttentionAlerts(
             ? 'critical'
             : 'warning'
           : 'warning'
-      const action = actionForSource(event.sourceType)
+      const action = actionForEvent(event)
 
       return {
         id: event.id,

@@ -32,6 +32,7 @@ export type IncomeSchedule = {
 
 export type FinancialCalendarEvent = {
   id: string
+  sourceId?: string
   date: string
   title: string
   amount: number
@@ -345,6 +346,7 @@ export function buildIncomeScheduleEvents(
         if (isWithinWindow(cursor, lowerBound, upperBound)) {
           events.push({
             id: `income_schedule-${schedule.id}-${formatDateOnly(cursor)}`,
+            sourceId: schedule.id,
             date: formatDateOnly(cursor),
             title: schedule.name,
             amount: Number(schedule.amount || 0),
@@ -389,6 +391,7 @@ export function buildReminderEvents(
 
       events.push({
         id: `reminder-${reminder.id}`,
+        sourceId: reminder.id,
         date: formatDateOnly(dueDate),
         title: reminder.title,
         amount,
@@ -439,6 +442,7 @@ export function buildRecurringChargeEvents(
 
       events.push({
         id: `recurring_charge-${charge.id}-${formatDateOnly(cursor)}`,
+        sourceId: charge.id,
         date: formatDateOnly(cursor),
         title: charge.name,
         amount: Number(charge.amount || 0),
@@ -483,6 +487,7 @@ export function buildInstallmentEvents(
 
       events.push({
         id: `installment-${plan.id}-${installmentNumber}`,
+        sourceId: plan.id,
         date: formatDateOnly(chargeDate),
         title: plan.description,
         amount: Number(plan.monthly_amount || 0),
@@ -528,6 +533,7 @@ export function buildCreditCardPaymentEvents(
 
       return [{
         id: `credit_card_payment-${card.id}-${formatDateOnly(dueDate)}`,
+        sourceId: card.id,
         date: formatDateOnly(dueDate),
         title: amount > 0 ? `Pago ${card.name}` : `Pago ${card.name} pendiente por confirmar`,
         amount,
@@ -578,6 +584,7 @@ export function buildDebtPaymentEvents(
 
         events.push({
           id: `debt_payment-${debt.id}-${formatDateOnly(cursor)}`,
+          sourceId: debt.id,
           date: formatDateOnly(cursor),
           title: hasAmount ? `Pago ${debt.name || 'deuda'}` : `Pago ${debt.name || 'deuda'} pendiente por confirmar`,
           amount,

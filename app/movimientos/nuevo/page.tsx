@@ -132,6 +132,8 @@ export default function NuevoMovimientoPage() {
   const initialType: TransactionType = isTransactionType(requestedType) ? requestedType : 'expense'
   const initialIsMsi = searchParams.get('msi') === '1'
   const initialAccountId = searchParams.get('account') || ''
+  const initialCreditCardId = searchParams.get('creditCard') || ''
+  const initialDebtId = searchParams.get('debt') || ''
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo =
     requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
@@ -159,8 +161,12 @@ export default function NuevoMovimientoPage() {
   const [sourceAccountId, setSourceAccountId] = useState(initialType === 'income' ? '' : initialAccountId)
   const [destinationAccountId, setDestinationAccountId] = useState(initialType === 'income' ? initialAccountId : '')
   const [categoryId, setCategoryId] = useState('')
-  const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
-  const [relatedDebtId, setRelatedDebtId] = useState('')
+  const [relatedCreditCardId, setRelatedCreditCardId] = useState(
+    ['credit_card_purchase', 'credit_card_payment', 'credit_card_refund'].includes(initialType)
+      ? initialCreditCardId
+      : ''
+  )
+  const [relatedDebtId, setRelatedDebtId] = useState(initialType === 'debt_payment' ? initialDebtId : '')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(initialIsMsi && initialType === 'credit_card_purchase')
   const [msiTimingMode, setMsiTimingMode] = useState<'new' | 'historical'>('new')
@@ -197,6 +203,23 @@ export default function NuevoMovimientoPage() {
     setCategories(categoriesData ?? [])
     setCreditCards(cardsData ?? [])
     setDebts(debtsData ?? [])
+
+    if (initialCreditCardId && ['credit_card_purchase', 'credit_card_payment', 'credit_card_refund'].includes(initialType)) {
+      const card = (cardsData ?? []).find((item) => item.id === initialCreditCardId)
+      if (card) {
+        setRelatedCreditCardId(card.id)
+        if (initialType === 'credit_card_purchase') {
+          setSourceAccountId(card.account_id ?? '')
+        }
+        if (initialType === 'credit_card_payment') {
+          const defaultPaymentAmount = Number(card.no_interest_payment || card.current_balance || card.minimum_payment || 0)
+          if (defaultPaymentAmount > 0) {
+            setAmount(defaultPaymentAmount.toFixed(2))
+          }
+        }
+      }
+    }
+
     setLoading(false)
   }
 

@@ -10,6 +10,7 @@ import {
   getPendingRecurringOccurrences,
   isRecurringChargeAutoPayable,
   isRecurringChargeDue,
+  markRecurringChargeCovered,
   processRecurringCharges,
   type RecurringCharge,
 } from '@/lib/recurring-charges'
@@ -150,6 +151,26 @@ export default function RecurrentesPage() {
       setMessage('Cargos domiciliados generados como movimientos reales.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudieron procesar los recurrentes.')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  const handleMarkCovered = async (charge: RecurringCharge) => {
+    const ok = window.confirm(
+      `¿Marcar "${charge.name}" como cubierto sin crear movimiento?\n\nUsa esto solo si el cargo ya se cobró o ya está considerado en el saldo actual.`
+    )
+    if (!ok) return
+
+    setProcessing(true)
+    setMessage('')
+
+    try {
+      await markRecurringChargeCovered(supabase, charge)
+      await initialize()
+      setMessage(`"${charge.name}" se marcó como cubierto. No se creó movimiento ni se tocaron saldos.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo marcar como cubierto.')
     } finally {
       setProcessing(false)
     }
@@ -305,6 +326,17 @@ export default function RecurrentesPage() {
                     </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex flex-wrap gap-2 justify-end">
+                        {isRecurringChargeDue(charge) ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleMarkCovered(charge)}
+                            disabled={processing}
+                            title="Avanza la próxima fecha sin crear movimiento ni tocar saldos."
+                            className="rounded-xl border-2 border-sky-100 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-500 hover:text-white transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            MARCAR CUBIERTO
+                          </button>
+                        ) : null}
                         {charge.affects_cash !== false && charge.payment_method_type === 'manual_choice' && isRecurringChargeDue(charge) ? (
                           <Link
                             href={`/recurrentes/${charge.id}/pagar`}

@@ -401,3 +401,41 @@ export async function settleRecurringCharge(
 
   return data as RecurringCharge
 }
+
+export async function markRecurringChargeCovered(
+  supabase: SupabaseClient,
+  charge: RecurringCharge,
+  referenceDate = new Date()
+) {
+  if (!charge.is_active || !charge.next_charge_date) {
+    throw new Error('Este recurrente no tiene un cobro pendiente.')
+  }
+
+  const dueDates = getPendingRecurringOccurrences(charge, referenceDate)
+  if (dueDates.length === 0) {
+    throw new Error('Este recurrente todavía no vence.')
+  }
+
+  const lastCoveredChargeDate = dueDates[dueDates.length - 1]
+  const nextChargeDate = calculateNextChargeDateFrom(
+    charge.frequency,
+    charge.charge_day,
+    parseDateOnly(lastCoveredChargeDate)
+  )
+
+  const { data, error } = await supabase
+    .from('recurring_charges')
+    .update({
+      next_charge_date: nextChargeDate,
+      last_processed_charge_date: lastCoveredChargeDate,
+    })
+    .eq('id', charge.id)
+    .select('*')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || 'No se pudo marcar el recurrente como cubierto.')
+  }
+
+  return data as RecurringCharge
+}

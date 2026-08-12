@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import {
@@ -29,8 +29,14 @@ function localDateKey(date = new Date()) {
 export default function PagarRecurrentePage() {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const params = useParams()
   const id = params?.id as string
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo =
+    requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
+      ? requestedReturnTo
+      : '/recurrentes'
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -85,6 +91,18 @@ export default function PagarRecurrentePage() {
     setCharge(chargeData as RecurringCharge)
     setAccounts((accountsData as Account[]) ?? [])
     setCards((cardsData as CreditCard[]) ?? [])
+
+    const loadedCharge = chargeData as RecurringCharge
+    if (loadedCharge.payment_method_type === 'account' && loadedCharge.account_id) {
+      setPaymentMethodType('account')
+      setAccountId(loadedCharge.account_id)
+    }
+
+    if (loadedCharge.payment_method_type === 'credit_card' && loadedCharge.credit_card_id) {
+      setPaymentMethodType('credit_card')
+      setCreditCardId(loadedCharge.credit_card_id)
+    }
+
     setLoading(false)
   }
 
@@ -142,7 +160,7 @@ export default function PagarRecurrentePage() {
       setMessage('Recurrente liquidado correctamente.')
       setMessageType('success')
       setTimeout(() => {
-        router.push('/recurrentes')
+        router.push(returnTo)
         router.refresh()
       }, 700)
     } catch (error) {
@@ -179,7 +197,7 @@ export default function PagarRecurrentePage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <nav className="flex items-center gap-2 text-slate-400 text-sm mb-4">
-                <Link href="/" className="hover:text-white transition">Home</Link>
+              <Link href="/" className="hover:text-white transition">Home</Link>
                 <span>/</span>
                 <Link href="/recurrentes" className="hover:text-white transition">Recurrentes</Link>
                 <span>/</span>
@@ -192,7 +210,7 @@ export default function PagarRecurrentePage() {
             </div>
 
             <Link
-              href="/recurrentes"
+              href={returnTo}
               className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 font-bold text-slate-200 hover:bg-slate-800 transition-all active:scale-95 shadow-lg"
             >
               Cerrar
