@@ -6,6 +6,7 @@ import {
   FolderTree,
   PiggyBank,
   Tags,
+  UsersRound,
   Wallet,
 } from 'lucide-react'
 import { MainNavigation } from '@/components/ui/MainNavigation'
@@ -34,6 +35,12 @@ const sections = [
     description: 'Alertas financieras y no financieras.',
     href: '/recordatorios',
     icon: Bell,
+  },
+  {
+    title: 'Gastos compartidos',
+    description: 'Grupos, cortes y liquidaciones sin duplicar saldos.',
+    href: '/compartidos',
+    icon: UsersRound,
   },
 ]
 

@@ -10,12 +10,13 @@ const quickLinks = [
   { href: '/recurrentes', label: 'Recurrentes', hint: 'Fijos' },
   { href: '/recordatorios', label: 'Recordatorios', hint: 'Alertas' },
   { href: '/presupuesto', label: 'Presupuesto', hint: 'Control' },
+  { href: '/compartidos', label: 'Compartidos', hint: 'Cortes' },
 ]
 
 export function QuickNav() {
   return (
     <nav className="finance-card-strong finance-scrollbar mb-8 overflow-x-auto rounded-[2rem] p-2">
-      <div className="flex min-w-max gap-2 lg:grid lg:min-w-0 lg:grid-cols-9">
+      <div className="flex min-w-max gap-2 xl:grid xl:min-w-0 xl:grid-cols-10">
         {quickLinks.map((link) => (
           <Link
             key={link.href}

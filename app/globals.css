@@ -68,6 +68,66 @@ body {
   text-transform: uppercase;
 }
 
+.input {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgb(226 232 240);
+  background: rgb(255 255 255 / 0.92);
+  padding: 0.9rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: rgb(15 23 42);
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.input:focus {
+  border-color: rgb(16 185 129 / 0.7);
+  background: white;
+  box-shadow: 0 0 0 4px rgb(16 185 129 / 0.1);
+}
+
+.btn-primary {
+  display: inline-flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.15rem;
+  background: rgb(2 6 23);
+  padding: 0.9rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: white;
+  text-transform: uppercase;
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 0.12),
+    0 16px 30px rgb(15 23 42 / 0.16);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.btn-primary:hover {
+  background: rgb(15 23 42);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 0.14),
+    0 22px 40px rgb(15 23 42 / 0.2);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .finance-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgb(203 213 225) transparent;
