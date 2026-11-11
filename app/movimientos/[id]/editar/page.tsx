@@ -71,6 +71,7 @@ export default function EditarMovimientoPage() {
   const [relatedCreditCardId, setRelatedCreditCardId] = useState('')
   const [relatedDebtId, setRelatedDebtId] = useState('')
   const [affectsBalance, setAffectsBalance] = useState(true)
+  const [applyToCardPaymentPending, setApplyToCardPaymentPending] = useState(true)
   const [originalTransaction, setOriginalTransaction] = useState<(TransactionLedgerEntry & { id: string }) | null>(null)
 
   async function initialize() {
@@ -116,6 +117,7 @@ export default function EditarMovimientoPage() {
     setRelatedCreditCardId(txData.related_credit_card_id ?? '')
     setRelatedDebtId(txData.related_debt_id ?? '')
     setAffectsBalance(txData.affects_balance ?? true)
+    setApplyToCardPaymentPending(txData.transaction_type === 'credit_card_payment')
     setOriginalTransaction({
       id: txData.id,
       transaction_type: txData.transaction_type,
@@ -297,7 +299,7 @@ export default function EditarMovimientoPage() {
         related_credit_card_id: payload.related_credit_card_id as string | null,
         related_debt_id: payload.related_debt_id as string | null,
         affects_balance: affectsBalance,
-      }, originalTransaction)
+      }, originalTransaction, { applyToCardPaymentPending })
     } catch (prepareError) {
       fail(prepareError instanceof Error ? prepareError.message : 'No se pudo preparar el movimiento.')
       return
@@ -435,7 +437,11 @@ export default function EditarMovimientoPage() {
               <select
                 className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
                 value={transactionType}
-                onChange={(e) => setTransactionType(e.target.value as TransactionType)}
+                onChange={(e) => {
+                  const nextType = e.target.value as TransactionType
+                  setTransactionType(nextType)
+                  if (nextType === 'credit_card_payment') setApplyToCardPaymentPending(true)
+                }}
               >
                 <option value="expense">📉 Gasto / Retiro</option>
                 <option value="income">📈 Ingreso / Depósito</option>
@@ -705,6 +711,26 @@ export default function EditarMovimientoPage() {
                 </div>
               </label>
             </div>
+
+            {transactionType === 'credit_card_payment' && (
+              <div className="col-span-2">
+                <label className="flex items-start gap-3 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 p-4">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-indigo-700 focus:ring-indigo-700"
+                    checked={applyToCardPaymentPending}
+                    onChange={(e) => setApplyToCardPaymentPending(e.target.checked)}
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Descontar del pago pendiente de la tarjeta</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Actívalo cuando este sea un pago real del corte, incluso si desactivaste el impacto automático en saldos.
+                      Desactívalo solo si el monto pendiente ya lo refleja.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
 
             <div className="col-span-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Descripción / Notas</label>

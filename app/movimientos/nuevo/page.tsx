@@ -166,6 +166,7 @@ export default function NuevoMovimientoPage() {
       ? initialCreditCardId
       : ''
   )
+  const [applyToCardPaymentPending, setApplyToCardPaymentPending] = useState(true)
   const [relatedDebtId, setRelatedDebtId] = useState(initialType === 'debt_payment' ? initialDebtId : '')
   const [affectsBalance, setAffectsBalance] = useState(true)
   const [isMsi, setIsMsi] = useState(initialIsMsi && initialType === 'credit_card_purchase')
@@ -407,6 +408,7 @@ export default function NuevoMovimientoPage() {
     setCategoryId('')
     setRelatedCreditCardId('')
     setRelatedDebtId('')
+    setApplyToCardPaymentPending(true)
     setAffectsBalance(true)
     setIsMsi(false)
     setMsiTimingMode('new')
@@ -526,7 +528,9 @@ export default function NuevoMovimientoPage() {
 
     let preparedTx: Awaited<ReturnType<typeof prepareTransactionForPersistence>>
     try {
-      preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction)
+      preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction, undefined, {
+        applyToCardPaymentPending,
+      })
     } catch (error) {
       fail(error instanceof Error ? error.message : 'No se pudo preparar el movimiento.')
       return
@@ -1417,10 +1421,33 @@ export default function NuevoMovimientoPage() {
                   <p className="mt-1 text-xs text-slate-500">
                     Desactívalo si este movimiento ya venía reflejado en el saldo actual. Lo guardamos en historial,
                     pero no lo volvemos a sumar ni a restar.
+                    {transactionType === 'credit_card_payment'
+                      ? ' El pago registrado sí se descuenta del monto pendiente de la tarjeta.'
+                      : ''}
                   </p>
                 </div>
               </label>
             </div>
+
+            {transactionType === 'credit_card_payment' && (
+              <div className="col-span-2">
+                <label className="flex items-start gap-3 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 p-4">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-5 w-5 rounded border-slate-300 text-indigo-700 focus:ring-indigo-700"
+                    checked={applyToCardPaymentPending}
+                    onChange={(e) => setApplyToCardPaymentPending(e.target.checked)}
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Descontar del pago pendiente de la tarjeta</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Actívalo cuando este sea un pago real del corte, incluso si desactivaste el impacto automático en saldos.
+                      Desactívalo solo si el monto pendiente ya lo refleja.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
 
             <div className="col-span-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Descripción / Notas</label>

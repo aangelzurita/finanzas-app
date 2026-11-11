@@ -64,7 +64,8 @@ export async function allocateCreditCardPayment(
   supabase: SupabaseClient,
   cardId: string | null,
   amount: number,
-  baseline?: CardSnapshot
+  baseline?: CardSnapshot,
+  validateCardBalance = true
 ) {
   assertAmount(amount)
 
@@ -74,7 +75,7 @@ if (card.current_balance == null) {
   throw new Error('La tarjeta no tiene saldo actual definido.')
 }
 
-if (amount > card.current_balance) {
+if (validateCardBalance && amount > card.current_balance) {
   throw new Error('El pago no puede ser mayor al saldo usado de la tarjeta.')
 }
 
@@ -95,14 +96,13 @@ async function buildCardBaselineAfterReversal(
 
   if (
     previousTx.transaction_type !== 'credit_card_payment' ||
-    previousTx.affects_balance === false ||
     previousTx.related_credit_card_id !== nextCardId
   ) {
     return card
   }
 
   return {
-    current_balance: card.current_balance + previousTx.amount,
+    current_balance: card.current_balance + (previousTx.affects_balance === false ? 0 : previousTx.amount),
     minimum_payment: card.minimum_payment + Number(previousTx.applied_to_minimum_payment || 0),
     no_interest_payment: card.no_interest_payment + Number(previousTx.applied_to_no_interest_payment || 0),
   }
@@ -111,9 +111,13 @@ async function buildCardBaselineAfterReversal(
 export async function prepareTransactionForPersistence(
   supabase: SupabaseClient,
   tx: TransactionLedgerEntry,
-  previousTx?: TransactionLedgerEntry
+  previousTx?: TransactionLedgerEntry,
+  options: { applyToCardPaymentPending?: boolean } = {}
 ) {
-  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) {
+  if (
+    tx.transaction_type !== 'credit_card_payment' ||
+    options.applyToCardPaymentPending === false
+  ) {
     return {
       ...tx,
       applied_to_minimum_payment: 0,
@@ -129,7 +133,8 @@ export async function prepareTransactionForPersistence(
     supabase,
     tx.related_credit_card_id,
     tx.amount,
-    baseline
+    baseline,
+    tx.affects_balance !== false
   )
 
   return {
@@ -171,7 +176,7 @@ export async function applyTransactionMetadata(
   supabase: SupabaseClient,
   tx: TransactionLedgerEntry
 ) {
-  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) return
+  if (tx.transaction_type !== 'credit_card_payment') return
 
   await updateCreditCardPaymentMetadata(
     supabase,
@@ -185,7 +190,7 @@ export async function reverseTransactionMetadata(
   supabase: SupabaseClient,
   tx: TransactionLedgerEntry
 ) {
-  if (tx.transaction_type !== 'credit_card_payment' || tx.affects_balance === false) return
+  if (tx.transaction_type !== 'credit_card_payment') return
 
   await updateCreditCardPaymentMetadata(
     supabase,

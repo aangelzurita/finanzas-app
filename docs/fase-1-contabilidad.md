@@ -38,12 +38,14 @@ Los pagos de tarjeta tienen dos capas:
 1. **Balance real**
    - Lo recalcula Supabase con el trigger de `transactions`.
 
-2. **Metadatos del pago**
+2. **Pendiente del corte**
    - `applied_to_minimum_payment`
    - `applied_to_no_interest_payment`
 
 Estos dos campos si los ajusta la app porque hoy la base no los reconstruye automaticamente desde historial.
 Los valores `minimum_payment` y `no_interest_payment` de la tarjeta representan lo que sigue pendiente; los eventos de calendario no deben volver a restarles los pagos ya registrados.
+
+El impacto al saldo y el descuento del pendiente del corte son independientes. Al registrar un pago desde Movimientos, se puede evitar volver a mover saldos y aun así descontar el pago del pendiente. En el formulario de la tarjeta, la opción de impacto controla ambos; para un movimiento histórico ya reflejado en ambos valores, debe permanecer desactivada.
 
 ## Implicacion importante
 

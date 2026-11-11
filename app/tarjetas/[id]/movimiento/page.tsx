@@ -285,6 +285,8 @@ export default function TarjetaMovimientoPage() {
       related_credit_card_id: card.id,
       related_debt_id: null,
       affects_balance: affectsBalance,
+    }, undefined, {
+      applyToCardPaymentPending: affectsBalance,
     })
 
     const payload: Record<string, unknown> = {
@@ -813,6 +815,9 @@ export default function TarjetaMovimientoPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   Desactívalo para capturar compras, pagos o reembolsos históricos que ya venían reflejados en el saldo usado,
                   pago mínimo o para no generar intereses.
+                  {movementType === 'credit_card_payment'
+                    ? ' Al desactivarlo, el pago tampoco cambia el pendiente del corte.'
+                    : ''}
                 </p>
               </div>
             </label>
