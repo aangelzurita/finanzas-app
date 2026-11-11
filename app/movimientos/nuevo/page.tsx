@@ -134,6 +134,7 @@ export default function NuevoMovimientoPage() {
   const initialAccountId = searchParams.get('account') || ''
   const initialCreditCardId = searchParams.get('creditCard') || ''
   const initialDebtId = searchParams.get('debt') || ''
+  const isPendingCommitmentConfirmation = searchParams.get('pendingConfirmation') === '1'
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo =
     requestedReturnTo && requestedReturnTo.startsWith('/') && !requestedReturnTo.startsWith('//')
@@ -212,7 +213,7 @@ export default function NuevoMovimientoPage() {
         if (initialType === 'credit_card_purchase') {
           setSourceAccountId(card.account_id ?? '')
         }
-        if (initialType === 'credit_card_payment') {
+        if (initialType === 'credit_card_payment' && !isPendingCommitmentConfirmation) {
           const defaultPaymentAmount = Number(card.no_interest_payment || card.current_balance || card.minimum_payment || 0)
           if (defaultPaymentAmount > 0) {
             setAmount(defaultPaymentAmount.toFixed(2))
@@ -443,7 +444,7 @@ export default function NuevoMovimientoPage() {
       setSourceAccountId(card?.account_id ?? '')
     }
 
-    if (transactionType === 'credit_card_payment' && card) {
+    if (transactionType === 'credit_card_payment' && card && !isPendingCommitmentConfirmation) {
       const defaultPaymentAmount = Number(card.no_interest_payment || card.current_balance || card.minimum_payment || 0)
       if (defaultPaymentAmount > 0) {
         setAmount(defaultPaymentAmount.toFixed(2))
@@ -1288,6 +1289,12 @@ export default function NuevoMovimientoPage() {
                       <p className="mt-1 text-sm font-bold text-slate-600">
                         Al elegir tarjeta precargamos el pago para no generar intereses si existe. Puedes usar otro monto si lo necesitas.
                       </p>
+                      {isPendingCommitmentConfirmation && (
+                        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
+                          Confirma el pago pendiente: captura el monto que realmente pagaste, la cuenta de origen y la fecha del movimiento.
+                          No usamos el saldo actual como sustituto del monto pagado.
+                        </p>
+                      )}
                       {cardCreditAfterPayment > 0 && (
                         <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
                           El pago excede por {formatMoney(cardCreditAfterPayment)} el saldo usado que la app tiene registrado.
@@ -1389,6 +1396,11 @@ export default function NuevoMovimientoPage() {
                       </p>
                     </div>
                   </div>
+                  {isPendingCommitmentConfirmation && (
+                    <p className="mt-4 rounded-xl border border-amber-200 bg-white p-3 text-sm font-bold text-amber-900">
+                      Confirma el pago pendiente: captura el monto que realmente pagaste, la cuenta de origen y la fecha del movimiento.
+                    </p>
+                  )}
                 </div>
 
                 <div className="col-span-2 md:col-span-1">

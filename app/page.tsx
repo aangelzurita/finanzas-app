@@ -115,14 +115,26 @@ function accountTypeLabel(type: string) {
 function sourceActionHref(event?: FinancialCalendarEvent) {
   if (!event) return '/flujo'
 
-  const hrefs: Record<FinancialCalendarEvent['sourceType'], string> = {
+  const hrefs: Record<Exclude<FinancialCalendarEvent['sourceType'], 'credit_card_payment' | 'debt_payment'>, string> = {
     income_schedule: '/ingresos',
     recurring_charge: '/recurrentes',
     installment: '/obligaciones',
-    credit_card_payment: '/movimientos/nuevo?type=credit_card_payment',
-    debt_payment: '/movimientos/nuevo?type=debt_payment',
     reminder: '/recordatorios',
     transaction: '/movimientos',
+  }
+
+  if (event.sourceType === 'credit_card_payment') {
+    const cardId = event.creditCardId ?? event.sourceId
+    return cardId
+      ? `/movimientos/nuevo?type=credit_card_payment&creditCard=${encodeURIComponent(cardId)}&pendingConfirmation=1`
+      : '/movimientos/nuevo?type=credit_card_payment'
+  }
+
+  if (event.sourceType === 'debt_payment') {
+    const debtId = event.debtId ?? event.sourceId
+    return debtId
+      ? `/movimientos/nuevo?type=debt_payment&debt=${encodeURIComponent(debtId)}&pendingConfirmation=1`
+      : '/movimientos/nuevo?type=debt_payment'
   }
 
   return hrefs[event.sourceType]
@@ -1101,10 +1113,17 @@ export default function Home() {
                   <p className="text-[11px] font-black uppercase tracking-widest text-amber-600">Pendientes por confirmar</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     {pendingCommitmentConfirmations.slice(0, 4).map((event) => (
-                      <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 text-sm font-bold text-slate-600">
+                      <Link
+                        key={event.id}
+                        href={sourceActionHref(event)}
+                        className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500"
+                      >
                         <span>{event.title}</span>
-                        <span className="shrink-0 text-xs text-amber-700">{formatDate(event.date)}</span>
-                      </div>
+                        <span className="flex shrink-0 items-center gap-3 text-xs text-amber-700">
+                          {formatDate(event.date)}
+                          <span className="font-black uppercase tracking-wide">Registrar pago →</span>
+                        </span>
+                      </Link>
                     ))}
                   </div>
                 </div>
