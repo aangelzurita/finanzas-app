@@ -43,6 +43,7 @@ Los pagos de tarjeta tienen dos capas:
    - `applied_to_no_interest_payment`
 
 Estos dos campos si los ajusta la app porque hoy la base no los reconstruye automaticamente desde historial.
+Los valores `minimum_payment` y `no_interest_payment` de la tarjeta representan lo que sigue pendiente; los eventos de calendario no deben volver a restarles los pagos ya registrados.
 
 ## Implicacion importante
 
@@ -85,4 +86,3 @@ Cuando algo se vea raro:
 2. confirmar si hay duplicados
 3. validar `initial_balance`
 4. ejecutar las consultas de [sql/2026-04-16-accounting-reconciliation.sql](/Users/angelzurita/finanzas-app/sql/2026-04-16-accounting-reconciliation.sql)
-

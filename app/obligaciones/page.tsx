@@ -80,7 +80,7 @@ export default function ObligacionesPage() {
   const accountMap = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts])
   const cardPayments = useMemo(() => buildUpcomingCardPayments(cards), [cards])
   const totalCardPayments = useMemo(
-    () => cardPayments.reduce((acc, card) => acc + Number(card.no_interest_payment || card.minimum_payment || 0), 0),
+    () => cardPayments.reduce((acc, card) => acc + card.paymentAmount, 0),
     [cardPayments]
   )
   const activeInstallments = useMemo(
@@ -151,7 +151,7 @@ export default function ObligacionesPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
-          <MiniStat label="Tarjetas por pagar" value={formatMoney(totalCardPayments)} />
+          <MiniStat label="Pagos TDC estimados" value={formatMoney(totalCardPayments)} subvalue="Incluye saldo como referencia si falta confirmar el corte" />
           <MiniStat label="MSI informativos" value={formatMoney(installmentTotal)} />
           <MiniStat label="Deudas estimadas" value={formatMoney(debtTotal)} />
           <MiniStat label="Alertas con monto" value={formatMoney(reminderAmount)} />
@@ -175,8 +175,15 @@ export default function ObligacionesPage() {
                       <p className="mt-1 text-sm font-semibold text-slate-500">
                         Corte {formatDate(card.cutoffDate)} · pago {formatDate(card.dueDate)}
                       </p>
+                      <p className="mt-1 text-xs font-bold text-slate-400">
+                        {card.paymentAmountType === 'no_interest'
+                          ? 'Pendiente para no generar intereses'
+                          : card.paymentAmountType === 'minimum'
+                            ? 'Pago mínimo pendiente'
+                            : 'Saldo actual estimado · confirma el monto del corte'}
+                      </p>
                     </div>
-                    <p className="font-black text-amber-600">{formatMoney(Number(card.no_interest_payment || card.minimum_payment || 0))}</p>
+                    <p className="font-black text-amber-600">{formatMoney(card.paymentAmount)}</p>
                   </div>
                 </Link>
               ))}

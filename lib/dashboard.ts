@@ -98,6 +98,8 @@ export type CommitmentItem = {
 export type UpcomingCardPayment = CreditCard & {
   dueDate: string
   cutoffDate: string
+  paymentAmount: number
+  paymentAmountType: 'no_interest' | 'minimum' | 'balance_estimate'
 }
 
 export function nextDateForDay(day: number) {
@@ -225,15 +227,30 @@ export function buildDashboardMetrics(
 
 export function buildUpcomingCardPayments(cards: CreditCard[]) {
   return cards
-    .filter((card) =>
-      Number(card.current_balance || 0) > 0 &&
-      (Number(card.minimum_payment || 0) > 0 || Number(card.no_interest_payment || 0) > 0)
-    )
-    .map((card) => ({
-      ...card,
-      dueDate: nextDateForDay(card.payment_due_day),
-      cutoffDate: nextDateForDay(card.statement_cutoff_day),
-    }))
+    .filter((card) => Number(card.current_balance || 0) > 0)
+    .map((card) => {
+      const noInterestPayment = Number(card.no_interest_payment || 0)
+      const minimumPayment = Number(card.minimum_payment || 0)
+      const paymentAmountType: UpcomingCardPayment['paymentAmountType'] =
+        noInterestPayment > 0
+          ? 'no_interest'
+          : minimumPayment > 0
+            ? 'minimum'
+            : 'balance_estimate'
+
+      return {
+        ...card,
+        dueDate: nextDateForDay(card.payment_due_day),
+        cutoffDate: nextDateForDay(card.statement_cutoff_day),
+        paymentAmount:
+          paymentAmountType === 'no_interest'
+            ? noInterestPayment
+            : paymentAmountType === 'minimum'
+              ? minimumPayment
+              : Number(card.current_balance || 0),
+        paymentAmountType,
+      }
+    })
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
     .slice(0, 5)
 }
