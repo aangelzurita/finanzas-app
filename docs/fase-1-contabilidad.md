@@ -47,7 +47,7 @@ Los valores `minimum_payment` y `no_interest_payment` de la tarjeta representan 
 
 El impacto al saldo y el descuento del pendiente del corte son independientes. Al registrar un pago desde Movimientos, se puede evitar volver a mover saldos y aun así descontar el pago del pendiente. En el formulario de la tarjeta, la opción de impacto controla ambos; para un movimiento histórico ya reflejado en ambos valores, debe permanecer desactivada.
 
-Un pago real puede ser mayor que el saldo usado actual cuando el monto del corte pendiente es superior. Si se registra con impacto a saldos, la tarjeta queda con saldo a favor (balance negativo) por la diferencia; la app debe advertirlo, no bloquear el pago.
+Un pago real puede ser mayor que el saldo usado que la app tiene registrado cuando el monto del corte pendiente es superior o los saldos todavía no se conciliaron. La app debe permitir registrar el importe pagado, advertir que el saldo resultante puede requerir conciliación y no afirmar que la diferencia sea saldo a favor.
 
 ## Implicacion importante
 

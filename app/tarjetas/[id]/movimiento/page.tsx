@@ -826,13 +826,14 @@ export default function TarjetaMovimientoPage() {
               affectsBalance &&
               Number(amount) > Number(card.current_balance || 0) && (
                 <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-                  El pago supera el saldo usado actual por{' '}
+                El pago excede por{' '}
                   {(Number(amount) - Number(card.current_balance || 0)).toLocaleString('es-MX', {
                     style: 'currency',
                     currency: 'MXN',
                   })}
-                  . Al impactar saldos, la tarjeta quedara con ese saldo a favor. Confirma que el monto sea correcto.
-                </p>
+                {' '}el saldo usado que la app tiene registrado. Se guardará el importe completo y el saldo de la tarjeta
+                podría requerir conciliación después.
+              </p>
               )}
           </div>
 

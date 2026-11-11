@@ -1290,8 +1290,8 @@ export default function NuevoMovimientoPage() {
                       </p>
                       {cardCreditAfterPayment > 0 && (
                         <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-                          El pago supera el saldo usado actual por {formatMoney(cardCreditAfterPayment)}. Al impactar saldos,
-                          la tarjeta quedara con ese saldo a favor. Confirma que el monto sea correcto.
+                          El pago excede por {formatMoney(cardCreditAfterPayment)} el saldo usado que la app tiene registrado.
+                          Se guardará el importe completo y el saldo de la tarjeta podría requerir conciliación después.
                         </p>
                       )}
                     </div>
@@ -1501,7 +1501,7 @@ export default function NuevoMovimientoPage() {
                         ? !affectsBalance
                           ? 'No cambia saldo usado'
                           : cardCreditAfterPayment > 0
-                            ? `Saldo a favor ${formatMoney(cardCreditAfterPayment)}`
+                            ? 'Pendiente de conciliar'
                             : 'Baja saldo usado'
                         : transactionType === 'debt_payment'
                           ? 'Baja adeudo'
