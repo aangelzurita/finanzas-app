@@ -3,32 +3,52 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  CreditCard,
   CalendarClock,
-  CircleDollarSign,
-  Brain,
   Gauge,
   MoreHorizontal,
   ReceiptText,
-  UsersRound,
+  Wallet,
+  CircleDollarSign,
 } from 'lucide-react'
 
 const navItems = [
-  { href: '/', label: 'Hoy', hint: 'Estado actual', icon: Gauge },
-  { href: '/flujo', label: 'Planificar', hint: 'Flujo futuro', icon: CalendarClock },
-  { href: '/diagnostico', label: 'Diagnóstico', hint: 'Decisiones', icon: Brain },
-  { href: '/obligaciones', label: 'Obligaciones', hint: 'Pagos', icon: ReceiptText },
-  { href: '/gastos', label: 'Gastos', hint: 'Fugas', icon: CircleDollarSign },
-  { href: '/compartidos', label: 'Compartidos', hint: 'Dividir', icon: UsersRound },
-  { href: '/mas', label: 'Más', hint: 'Administrar', icon: MoreHorizontal },
+  { href: '/', label: 'Hoy', mobileLabel: 'Hoy', icon: Gauge },
+  { href: '/movimientos', label: 'Movimientos', mobileLabel: 'Movs.', icon: ReceiptText },
+  { href: '/cuentas', label: 'Cuentas', mobileLabel: 'Ctas.', icon: Wallet },
+  { href: '/tarjetas', label: 'Tarjetas', mobileLabel: 'TDC', icon: CreditCard },
+  { href: '/flujo', label: 'Planificar', mobileLabel: 'Plan', icon: CalendarClock },
+  { href: '/gastos', label: 'Gastos', mobileLabel: 'Gastos', icon: CircleDollarSign },
+  { href: '/mas', label: 'Más', mobileLabel: 'Más', icon: MoreHorizontal },
 ]
 
 function isActive(pathname: string, href: string) {
   if (href === '/') return pathname === '/'
+  if (href === '/mas') {
+    const administrativeRoutes = [
+      '/ingresos',
+      '/categorias',
+      '/recordatorios',
+      '/compartidos',
+      '/diagnostico',
+      '/obligaciones',
+      '/presupuesto',
+      '/deudas',
+      '/recurrentes',
+    ]
+
+    return pathname === href || administrativeRoutes.some(
+      (route) => pathname === route || pathname.startsWith(`${route}/`)
+    )
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function MainNavigation() {
+export function MainNavigation({ global = false }: { global?: boolean }) {
   const pathname = usePathname()
+
+  if (global && pathname === '/') return null
 
   return (
     <>
@@ -42,6 +62,7 @@ export function MainNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.label}
                 className={`group flex items-center justify-center gap-3 rounded-[1.1rem] px-3 py-3 text-center transition active:scale-95 lg:justify-start lg:px-4 ${
                   active
                     ? 'bg-slate-950 text-white shadow-lg shadow-slate-950/15'
@@ -68,6 +89,7 @@ export function MainNavigation() {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.label}
                 className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-black uppercase tracking-wide transition active:scale-95 ${
                   active
                     ? 'bg-slate-950 text-white'
@@ -75,7 +97,7 @@ export function MainNavigation() {
                 }`}
               >
                 <Icon size={18} className={active ? 'text-emerald-300' : 'text-slate-400'} />
-                <span className="max-w-full truncate">{item.label}</span>
+                <span className="max-w-full truncate">{item.mobileLabel}</span>
               </Link>
             )
           })}

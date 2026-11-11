@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, BarChart3, Brain, CalendarDays, ListChecks, PlusCircle, Tags } from 'lucide-react'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney } from '@/lib/utils'
@@ -203,8 +202,6 @@ export default function GastosPage() {
       </section>
 
       <section className="relative z-20 mx-auto max-w-7xl px-6 -mt-8">
-        <MainNavigation />
-
         {message && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
             {message}

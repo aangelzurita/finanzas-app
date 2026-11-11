@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { KpiCard } from '@/components/ui/KpiCard'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 import { AttentionAlerts } from '@/components/ui/AttentionAlerts'
 import { buildCashflowProjection, type CashflowRiskLevel } from '@/lib/cashflow-projection'
 import { buildAttentionAlerts } from '@/lib/attention-alerts'
@@ -435,8 +434,6 @@ export default function FlujoPage() {
       </section>
 
       <section className="max-w-7xl mx-auto px-6 -mt-8">
-        <MainNavigation />
-
         {message && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 shadow-sm">
             {message}

@@ -287,15 +287,21 @@ export default function EditarMovimientoPage() {
       payload.related_debt_id = relatedDebtId
     }
 
-    const preparedNextTransaction = await prepareTransactionForPersistence(supabase, {
-      transaction_type: payload.transaction_type as TransactionType,
-      amount: payload.amount as number,
-      source_account_id: payload.source_account_id as string | null,
-      destination_account_id: payload.destination_account_id as string | null,
-      related_credit_card_id: payload.related_credit_card_id as string | null,
-      related_debt_id: payload.related_debt_id as string | null,
-      affects_balance: affectsBalance,
-    }, originalTransaction)
+    let preparedNextTransaction: TransactionLedgerEntry
+    try {
+      preparedNextTransaction = await prepareTransactionForPersistence(supabase, {
+        transaction_type: payload.transaction_type as TransactionType,
+        amount: payload.amount as number,
+        source_account_id: payload.source_account_id as string | null,
+        destination_account_id: payload.destination_account_id as string | null,
+        related_credit_card_id: payload.related_credit_card_id as string | null,
+        related_debt_id: payload.related_debt_id as string | null,
+        affects_balance: affectsBalance,
+      }, originalTransaction)
+    } catch (prepareError) {
+      fail(prepareError instanceof Error ? prepareError.message : 'No se pudo preparar el movimiento.')
+      return
+    }
 
     payload.applied_to_minimum_payment = preparedNextTransaction.applied_to_minimum_payment ?? 0
     payload.applied_to_no_interest_payment = preparedNextTransaction.applied_to_no_interest_payment ?? 0
@@ -315,12 +321,29 @@ export default function EditarMovimientoPage() {
       return
     }
 
-    const { data: updatedTx, error } = await supabase
-      .from('transactions')
-      .update(payload)
-      .eq('id', transactionId)
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
-      .single()
+    const updateMovement = () =>
+      supabase
+        .from('transactions')
+        .update(payload)
+        .eq('id', transactionId)
+        .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
+        .single()
+
+    let updateResult: Awaited<ReturnType<typeof updateMovement>>
+    try {
+      updateResult = await updateMovement()
+    } catch (updateError) {
+      try {
+        await reverseTransactionMetadata(supabase, nextTransaction)
+        await applyTransactionMetadata(supabase, originalTransaction)
+      } catch {
+        // Keep the original update error for the UI.
+      }
+      fail(updateError instanceof Error ? `Error: ${updateError.message}` : 'No se pudo actualizar el movimiento.')
+      return
+    }
+
+    const { data: updatedTx, error } = updateResult
 
     if (error || !updatedTx) {
       try {

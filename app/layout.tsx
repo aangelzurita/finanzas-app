@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { DateSimulator } from "@/components/debug/DateSimulator";
+import { MainNavigation } from "@/components/ui/MainNavigation";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,8 +27,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col pb-20 md:pb-0" suppressHydrationWarning>
         <DateSimulator />
+        <MainNavigation global />
         {children}
       </body>
     </html>

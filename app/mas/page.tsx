@@ -2,14 +2,18 @@
 
 import Link from 'next/link'
 import {
+  BarChart3,
+  Brain,
   Bell,
+  CircleDollarSign,
   FolderTree,
   PiggyBank,
+  ReceiptText,
+  Repeat,
   Tags,
   UsersRound,
   Wallet,
 } from 'lucide-react'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 
 const sections = [
   {
@@ -42,6 +46,36 @@ const sections = [
     href: '/compartidos',
     icon: UsersRound,
   },
+  {
+    title: 'Diagnóstico',
+    description: 'Alertas y decisiones que requieren atención.',
+    href: '/diagnostico',
+    icon: Brain,
+  },
+  {
+    title: 'Obligaciones',
+    description: 'Próximos pagos de tarjetas, deudas y recordatorios.',
+    href: '/obligaciones',
+    icon: ReceiptText,
+  },
+  {
+    title: 'Presupuesto',
+    description: 'Límites mensuales y seguimiento por categoría.',
+    href: '/presupuesto',
+    icon: BarChart3,
+  },
+  {
+    title: 'Deudas',
+    description: 'Saldos, préstamos y pagos pendientes.',
+    href: '/deudas',
+    icon: CircleDollarSign,
+  },
+  {
+    title: 'Cargos recurrentes',
+    description: 'Servicios y pagos que se repiten.',
+    href: '/recurrentes',
+    icon: Repeat,
+  },
 ]
 
 export default function MasPage() {
@@ -58,8 +92,6 @@ export default function MasPage() {
       </section>
 
       <section className="relative z-20 mx-auto max-w-7xl px-6 -mt-8">
-        <MainNavigation />
-
         <div className="finance-card-strong rounded-[2rem] p-6 md:p-8">
           <div className="flex items-start gap-4">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white">

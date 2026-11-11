@@ -11,7 +11,6 @@ import {
   Scale,
   UsersRound,
 } from 'lucide-react'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 import { createClient } from '@/lib/supabase-browser'
 import { formatAppDateKey, getAppDate } from '@/lib/app-date'
 import { formatDate, formatMoney, friendlyTransactionType } from '@/lib/utils'
@@ -606,7 +605,6 @@ export default function CompartidosPage() {
     return (
       <main className="min-h-screen bg-[#eef3f8] px-6 py-12">
         <div className="mx-auto max-w-7xl">
-          <MainNavigation />
           <div className="finance-card-strong rounded-[2rem] p-8 text-sm font-bold text-slate-500">Cargando compartidos...</div>
         </div>
       </main>
@@ -637,8 +635,6 @@ export default function CompartidosPage() {
       </section>
 
       <section className="relative z-20 mx-auto max-w-7xl px-6 -mt-8">
-        <MainNavigation />
-
         {message && (
           <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
             {message}

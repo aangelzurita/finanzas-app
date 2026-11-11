@@ -19,6 +19,7 @@ select
         case
           when t.destination_account_id = a.id
                and t.status = 'completed'
+               and coalesce(t.affects_balance, true)
                and t.transaction_type in ('income', 'transfer')
             then t.amount
           else 0
@@ -28,6 +29,7 @@ select
         case
           when t.source_account_id = a.id
                and t.status = 'completed'
+               and coalesce(t.affects_balance, true)
                and t.transaction_type in ('expense', 'transfer', 'credit_card_payment', 'debt_payment')
             then t.amount
           else 0
@@ -37,35 +39,46 @@ from public.accounts a
 left join public.transactions t
   on t.source_account_id = a.id
   or t.destination_account_id = a.id
+where a.account_type <> 'credit_card'
 group by a.id, a.name, a.account_type, a.initial_balance, a.current_balance
 order by a.name;
 
 -- =========================================
 -- 2. Diagnostico de tarjetas
--- Ajustar esta consulta si la funcion SQL real del proyecto
--- maneja mas casos que compras y pagos.
+-- Incluye el saldo inicial de la cuenta espejo y los movimientos
+-- con impacto contable, igual que recalculate_credit_card_balance.
 -- =========================================
 select
   c.id,
   c.name,
+  a.initial_balance,
   c.current_balance as persisted_current_balance,
-  coalesce(sum(
+  coalesce(a.initial_balance, 0) + coalesce(sum(
     case
       when t.related_credit_card_id = c.id
            and t.status = 'completed'
+           and coalesce(t.affects_balance, true)
            and t.transaction_type = 'credit_card_purchase'
         then t.amount
       when t.related_credit_card_id = c.id
            and t.status = 'completed'
+           and coalesce(t.affects_balance, true)
            and t.transaction_type = 'credit_card_payment'
+        then -t.amount
+      when t.related_credit_card_id = c.id
+           and t.status = 'completed'
+           and coalesce(t.affects_balance, true)
+           and t.transaction_type = 'credit_card_refund'
         then -t.amount
       else 0
     end
   ), 0) as derived_current_balance
 from public.credit_cards c
+join public.accounts a
+  on a.id = c.account_id
 left join public.transactions t
   on t.related_credit_card_id = c.id
-group by c.id, c.name, c.current_balance
+group by c.id, c.name, a.initial_balance, c.current_balance
 order by c.name;
 
 -- =========================================
@@ -83,6 +96,7 @@ select
         case
           when t.related_debt_id = d.id
                and t.status = 'completed'
+               and coalesce(t.affects_balance, true)
                and t.transaction_type = 'debt_payment'
             then t.amount
           else 0

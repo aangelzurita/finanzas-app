@@ -11,7 +11,6 @@ import {
   ShieldAlert,
   WalletCards,
 } from 'lucide-react'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { createClient } from '@/lib/supabase-browser'
 import { formatDate, formatMoney } from '@/lib/utils'
@@ -230,8 +229,6 @@ export default function DiagnosticoPage() {
             {message}
           </div>
         )}
-
-        <MainNavigation />
 
         <section className="mb-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/8 md:p-8">

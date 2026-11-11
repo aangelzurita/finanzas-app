@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Bell, CalendarClock, CreditCard, Repeat, ReceiptText } from 'lucide-react'
-import { MainNavigation } from '@/components/ui/MainNavigation'
 import { MiniStat } from '@/components/ui/MiniStat'
 import { createClient } from '@/lib/supabase-browser'
 import { getAppDate } from '@/lib/app-date'
@@ -126,8 +125,6 @@ export default function ObligacionesPage() {
       </section>
 
       <section className="relative z-20 mx-auto max-w-7xl px-6 -mt-8">
-        <MainNavigation />
-
         {message && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
             {message}

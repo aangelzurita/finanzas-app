@@ -457,8 +457,14 @@ export default function NuevoMovimientoPage() {
       return
     }
 
-    const { data: sessionData } = await supabase.auth.getSession()
-    const userId = sessionData.session?.user?.id
+    let userId: string | undefined
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      userId = sessionData.session?.user?.id
+    } catch (error) {
+      fail(error instanceof Error ? error.message : 'No se pudo validar la sesión.')
+      return
+    }
 
     if (!userId) {
       setMessage('No hay sesión activa.')
@@ -518,7 +524,13 @@ export default function NuevoMovimientoPage() {
       affects_balance: affectsBalance,
     }
 
-    const preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction)
+    let preparedTx: Awaited<ReturnType<typeof prepareTransactionForPersistence>>
+    try {
+      preparedTx = await prepareTransactionForPersistence(supabase, draftTransaction)
+    } catch (error) {
+      fail(error instanceof Error ? error.message : 'No se pudo preparar el movimiento.')
+      return
+    }
 
     const payload: Record<string, unknown> = {
       user_id: userId,
@@ -573,11 +585,22 @@ export default function NuevoMovimientoPage() {
       payload.related_debt_id = relatedDebtId
     }
 
-    const { data: insertedTx, error } = await supabase
-      .from('transactions')
-      .insert(payload)
-      .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
-      .single()
+    const insertMovement = () =>
+      supabase
+        .from('transactions')
+        .insert(payload)
+        .select('id, transaction_type, amount, source_account_id, destination_account_id, related_credit_card_id, related_debt_id, affects_balance, applied_to_minimum_payment, applied_to_no_interest_payment')
+        .single()
+
+    let insertResult: Awaited<ReturnType<typeof insertMovement>>
+    try {
+      insertResult = await insertMovement()
+    } catch (error) {
+      fail(error instanceof Error ? `Error: ${error.message}` : 'No se pudo guardar el movimiento.')
+      return
+    }
+
+    const { data: insertedTx, error } = insertResult
 
     if (error || !insertedTx) {
       setMessage(`Error: ${error?.message || 'No se pudo guardar el movimiento.'}`)
@@ -605,8 +628,19 @@ export default function NuevoMovimientoPage() {
         })
       }
     } catch (impactError) {
-      await supabase.from('transactions').delete().eq('id', insertedTx.id)
-      setMessage(impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.')
+      let rollbackMessage = ''
+      try {
+        const { error: rollbackError } = await supabase.from('transactions').delete().eq('id', insertedTx.id)
+        rollbackMessage = rollbackError?.message || ''
+      } catch (rollbackError) {
+        rollbackMessage = rollbackError instanceof Error ? rollbackError.message : 'Error desconocido'
+      }
+
+      setMessage(
+        rollbackMessage
+          ? `No se pudo completar el movimiento: ${impactError instanceof Error ? impactError.message : 'falló el procesamiento'}. Además, no se pudo revertir el registro: ${rollbackMessage}`
+          : impactError instanceof Error ? impactError.message : 'No se pudo aplicar el movimiento.'
+      )
       setSaving(false)
       return
     }
@@ -897,64 +931,69 @@ export default function NuevoMovimientoPage() {
                   </select>
                 </div>
 
-                <div className="col-span-2 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-5">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Sparkles size={18} className="text-emerald-600" />
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Asesor de compra</p>
+                <details className="col-span-2">
+                  <summary className="cursor-pointer rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm font-black text-emerald-800">
+                    Asesor de compra (opcional): comparar fecha de pago y disponible
+                  </summary>
+                  <div className="mt-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={18} className="text-emerald-600" />
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Asesor de compra</p>
+                        </div>
+                        <h2 className="mt-2 text-xl font-black text-slate-950">
+                          {bestAdvisorCard ? `${bestAdvisorCard.cardName} parece la mejor opción` : 'Registra tarjetas para recomendar mejor opción'}
+                        </h2>
+                        <p className="mt-1 text-sm font-bold text-slate-600">
+                          {bestAdvisorCard
+                            ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar. ${bestAdvisorCard.reasons[0] || ''}`
+                            : 'La recomendación considera corte, fecha de pago, uso de línea y disponible.'}
+                        </p>
                       </div>
-                      <h2 className="mt-2 text-xl font-black text-slate-950">
-                        {bestAdvisorCard ? `${bestAdvisorCard.cardName} parece la mejor opción` : 'Registra tarjetas para recomendar mejor opción'}
-                      </h2>
-                      <p className="mt-1 text-sm font-bold text-slate-600">
-                        {bestAdvisorCard
-                          ? `${bestAdvisorCard.financingDaysIfUsedToday} días estimados para pagar. ${bestAdvisorCard.reasons[0] || ''}`
-                          : 'La recomendación considera corte, fecha de pago, uso de línea y disponible.'}
-                      </p>
+                      {bestAdvisorCard && relatedCreditCardId !== bestAdvisorCard.cardId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleCreditCardChange(bestAdvisorCard.cardId)}
+                          className="w-fit rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-emerald-700"
+                        >
+                          Usar recomendada
+                        </button>
+                      ) : null}
                     </div>
-                    {bestAdvisorCard && relatedCreditCardId !== bestAdvisorCard.cardId ? (
-                      <button
-                        type="button"
-                        onClick={() => handleCreditCardChange(bestAdvisorCard.cardId)}
-                        className="w-fit rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-emerald-700"
-                      >
-                        Usar recomendada
-                      </button>
-                    ) : null}
-                  </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-4">
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Corte</p>
-                      <p className="mt-1 text-sm font-black text-slate-950">
-                        {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedCutoffDate.toISOString()) : 'Selecciona tarjeta'}
-                      </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                      <div className="rounded-2xl bg-white p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Corte</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">
+                          {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedCutoffDate.toISOString()) : 'Selecciona tarjeta'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago estimado compra</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">
+                          {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedPaymentDueDate.toISOString()) : 'Selecciona tarjeta'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso después</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">
+                          {selectedCardAfterPurchase ? `${(selectedCardAfterPurchase.nextUtilization * 100).toFixed(1)}%` : 'Sin monto'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Disponible después</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">
+                          {selectedCardAfterPurchase ? formatMoney(selectedCardAfterPurchase.availableAfter) : 'Sin monto'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pago estimado compra</p>
-                      <p className="mt-1 text-sm font-black text-slate-950">
-                        {selectedAdvisorCard ? formatDate(selectedAdvisorCard.estimatedPaymentDueDate.toISOString()) : 'Selecciona tarjeta'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso después</p>
-                      <p className="mt-1 text-sm font-black text-slate-950">
-                        {selectedCardAfterPurchase ? `${(selectedCardAfterPurchase.nextUtilization * 100).toFixed(1)}%` : 'Sin monto'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Disponible después</p>
-                      <p className="mt-1 text-sm font-black text-slate-950">
-                        {selectedCardAfterPurchase ? formatMoney(selectedCardAfterPurchase.availableAfter) : 'Sin monto'}
-                      </p>
-                    </div>
-                  </div>
 
-                  <p className="mt-4 text-xs font-bold text-slate-600">
-                    Esta compra no reduce tu efectivo hoy, pero aumenta el saldo de tu tarjeta y tus compromisos futuros.
-                  </p>
-                </div>
+                    <p className="mt-4 text-xs font-bold text-slate-600">
+                      Esta compra no reduce tu efectivo hoy, pero aumenta el saldo de tu tarjeta y tus compromisos futuros.
+                    </p>
+                  </div>
+                </details>
 
                 <div className="col-span-2">
                   <label className="flex items-start gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-4">
