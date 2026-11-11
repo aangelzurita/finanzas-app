@@ -64,8 +64,7 @@ export async function allocateCreditCardPayment(
   supabase: SupabaseClient,
   cardId: string | null,
   amount: number,
-  baseline?: CardSnapshot,
-  validateCardBalance = true
+  baseline?: CardSnapshot
 ) {
   assertAmount(amount)
 
@@ -73,10 +72,6 @@ export async function allocateCreditCardPayment(
 
 if (card.current_balance == null) {
   throw new Error('La tarjeta no tiene saldo actual definido.')
-}
-
-if (validateCardBalance && amount > card.current_balance) {
-  throw new Error('El pago no puede ser mayor al saldo usado de la tarjeta.')
 }
 
 return {
@@ -133,8 +128,7 @@ export async function prepareTransactionForPersistence(
     supabase,
     tx.related_credit_card_id,
     tx.amount,
-    baseline,
-    tx.affects_balance !== false
+    baseline
   )
 
   return {

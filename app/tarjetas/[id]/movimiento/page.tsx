@@ -26,6 +26,7 @@ type CreditCard = {
   bank: string | null
   statement_cutoff_day: number
   payment_due_day: number
+  current_balance: number
 }
 
 type Category = {
@@ -97,7 +98,7 @@ export default function TarjetaMovimientoPage() {
     ] = await Promise.all([
       supabase
         .from('credit_cards')
-        .select('id, account_id, name, bank, statement_cutoff_day, payment_due_day')
+        .select('id, account_id, name, bank, statement_cutoff_day, payment_due_day, current_balance')
         .eq('id', cardId)
         .single(),
       supabase
@@ -821,6 +822,18 @@ export default function TarjetaMovimientoPage() {
                 </p>
               </div>
             </label>
+            {movementType === 'credit_card_payment' &&
+              affectsBalance &&
+              Number(amount) > Number(card.current_balance || 0) && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
+                  El pago supera el saldo usado actual por{' '}
+                  {(Number(amount) - Number(card.current_balance || 0)).toLocaleString('es-MX', {
+                    style: 'currency',
+                    currency: 'MXN',
+                  })}
+                  . Al impactar saldos, la tarjeta quedara con ese saldo a favor. Confirma que el monto sea correcto.
+                </p>
+              )}
           </div>
 
           <div className="mt-12 flex flex-col gap-4">

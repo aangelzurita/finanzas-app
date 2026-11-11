@@ -284,6 +284,19 @@ export default function NuevoMovimientoPage() {
     return Number(amount || 0)
   }, [amount, installmentTotalAmountPreview, isMsi, transactionType])
 
+  const cardCreditAfterPayment = useMemo(() => {
+    if (
+      transactionType !== 'credit_card_payment' ||
+      !affectsBalance ||
+      !selectedCreditCard ||
+      parsedAmountForPreview <= Number(selectedCreditCard.current_balance || 0)
+    ) {
+      return 0
+    }
+
+    return parsedAmountForPreview - Number(selectedCreditCard.current_balance || 0)
+  }, [affectsBalance, parsedAmountForPreview, selectedCreditCard, transactionType])
+
   const cardAdvisorResults = useMemo(
     () => adviseCreditCards(creditCards, transactionDate ? new Date(transactionDate) : new Date()),
     [creditCards, transactionDate]
@@ -1275,6 +1288,12 @@ export default function NuevoMovimientoPage() {
                       <p className="mt-1 text-sm font-bold text-slate-600">
                         Al elegir tarjeta precargamos el pago para no generar intereses si existe. Puedes usar otro monto si lo necesitas.
                       </p>
+                      {cardCreditAfterPayment > 0 && (
+                        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
+                          El pago supera el saldo usado actual por {formatMoney(cardCreditAfterPayment)}. Al impactar saldos,
+                          la tarjeta quedara con ese saldo a favor. Confirma que el monto sea correcto.
+                        </p>
+                      )}
                     </div>
                   </div>
                   {suggestedPaymentAccount ? (
@@ -1479,7 +1498,11 @@ export default function NuevoMovimientoPage() {
                     {transactionType === 'credit_card_purchase'
                       ? 'Sube saldo usado'
                       : transactionType === 'credit_card_payment'
-                        ? 'Baja saldo usado'
+                        ? !affectsBalance
+                          ? 'No cambia saldo usado'
+                          : cardCreditAfterPayment > 0
+                            ? `Saldo a favor ${formatMoney(cardCreditAfterPayment)}`
+                            : 'Baja saldo usado'
                         : transactionType === 'debt_payment'
                           ? 'Baja adeudo'
                           : 'Sin impacto directo'}
