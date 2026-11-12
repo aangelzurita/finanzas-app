@@ -1,5 +1,7 @@
 import { isBudgetAffectingTransaction } from '@/lib/budget-rules'
+import { estimateSuggestedBudget } from '@/lib/budget-suggestion'
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
@@ -24,6 +26,7 @@ export type CategoryBudgetInsight = {
   recurringProjected: number
   average3Months: number
   average6Months: number
+  average12Months: number
   previousMonthSpend: number
   suggestedBudget: number
   currentBudget: number
@@ -135,7 +138,10 @@ export function sumInstallmentSpendByCategory(
       const chargeDate = getInstallmentChargeDate(plan, installmentNumber)
       if (!isWithinPeriod(chargeDate, period)) continue
 
-      amounts.set(plan.category_id, Number(amounts.get(plan.category_id) || 0) + Number(plan.monthly_amount || 0))
+      amounts.set(
+        plan.category_id,
+        Number(amounts.get(plan.category_id) || 0) + getInstallmentAmount(plan, installmentNumber)
+      )
     }
   })
 
@@ -232,6 +238,9 @@ export function buildBudgetInsights({
 
   const history3 = [1, 2, 3].map((offset) => sumRealBudgetSpendByCategory(transactions, buildMonthPeriod(referenceDate, -offset), msiPurchaseIds))
   const history6 = [1, 2, 3, 4, 5, 6].map((offset) => sumRealBudgetSpendByCategory(transactions, buildMonthPeriod(referenceDate, -offset), msiPurchaseIds))
+  const history12 = Array.from({ length: 12 }, (_, index) =>
+    sumRealBudgetSpendByCategory(transactions, buildMonthPeriod(referenceDate, -(index + 1)), msiPurchaseIds)
+  )
 
   const categoryIds = new Set<string>([
     ...categories.filter((category) => category.category_type === 'expense').map((category) => category.id),
@@ -249,12 +258,18 @@ export function buildBudgetInsights({
       const currentSpend = realSpend + installmentSpend
       const average3Months = history3.reduce((acc, month) => acc + Number(month.get(categoryId) || 0), 0) / 3
       const average6Months = history6.reduce((acc, month) => acc + Number(month.get(categoryId) || 0), 0) / 6
+      const average12Months = history12.reduce((acc, month) => acc + Number(month.get(categoryId) || 0), 0) / 12
       const previousSpend = Number(previousMonthSpend.get(categoryId) || 0)
       const msiFuture = Number(futureInstallments.get(categoryId) || 0)
       const recurringProjected = Number(futureRecurring.get(categoryId) || 0)
       const currentBudget = Number(budgetMap.get(categoryId) || 0)
-      const baseline = Math.max(average3Months, average6Months * 0.8)
-      const suggestedBudget = Math.ceil((baseline + msiFuture + recurringProjected) / 50) * 50
+      const suggestedBudget = estimateSuggestedBudget({
+        average3Months,
+        average6Months,
+        average12Months,
+        futureInstallmentSpend: msiFuture,
+        recurringProjected,
+      })
       const trend: CategoryBudgetInsight['trend'] =
         average3Months > average6Months * 1.15
           ? 'up'
@@ -281,6 +296,7 @@ export function buildBudgetInsights({
         recurringProjected: roundMoney(recurringProjected),
         average3Months: roundMoney(average3Months),
         average6Months: roundMoney(average6Months),
+        average12Months: roundMoney(average12Months),
         previousMonthSpend: roundMoney(previousSpend),
         suggestedBudget: roundMoney(Math.max(0, suggestedBudget)),
         currentBudget,
@@ -292,6 +308,7 @@ export function buildBudgetInsights({
       row.currentSpend > 0 ||
       row.average3Months > 0 ||
       row.average6Months > 0 ||
+      row.average12Months > 0 ||
       row.suggestedBudget > 0 ||
       row.currentBudget > 0
     )

@@ -418,17 +418,25 @@ export default function FlujoPage() {
                 <span className="text-slate-900 font-medium">Flujo</span>
               </nav>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-sky-600">Planificar</p>
-              <h1 className="mt-3 text-5xl font-black tracking-tight text-slate-950">Decidir antes de gastar</h1>
+              <h1 className="mt-3 text-5xl font-black tracking-tight text-slate-950">Planea antes de gastar</h1>
               <p className="text-slate-500 mt-3 text-lg max-w-2xl font-semibold">
-                Proyección de flujo, timeline y simulador para decidir antes de gastar.
+                Prueba una compra o pago, compara tarjetas y revisa cómo tus compromisos pueden afectar el saldo.
               </p>
             </div>
-            <Link
-              href="/"
-              className="rounded-2xl border border-slate-200 bg-white px-6 py-4 font-bold text-slate-700 hover:bg-slate-50 transition shadow-lg active:scale-95"
-            >
-              Volver
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/diagnostico"
+                className="rounded-2xl bg-indigo-600 px-5 py-4 font-bold text-white shadow-lg transition hover:bg-indigo-700 active:scale-95"
+              >
+                Ver diagnóstico financiero
+              </Link>
+              <Link
+                href="/"
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 font-bold text-slate-700 shadow-lg transition hover:bg-slate-50 active:scale-95"
+              >
+                Inicio
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -488,9 +496,9 @@ export default function FlujoPage() {
         <div className="finance-card-strong mb-8 rounded-[2.5rem] p-6">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-2xl font-black text-slate-900">Simular decisión</h2>
+              <h2 className="text-2xl font-black text-slate-900">¿Qué quieres comprar o pagar?</h2>
               <p className="mt-1 text-sm font-medium text-slate-500">
-                Esta simulación no modifica tus datos ni crea movimientos.
+                Ingresa el monto y la fecha. Si eliges una compra con tarjeta, comparamos tus tarjetas y estimamos el efecto en tus pagos. No se guarda ningún movimiento.
               </p>
             </div>
             {simulationResult && (
@@ -561,12 +569,12 @@ export default function FlujoPage() {
             )}
 
             <label className={`block ${simulationForm.type === 'installment_purchase' ? 'lg:col-span-2' : 'lg:col-span-4'}`}>
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Concepto</span>
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">¿Qué tienes en mente? (opcional)</span>
               <input
                 name="title"
                 value={simulationForm.title}
                 onChange={handleSimulationChange}
-                placeholder="Opcional"
+                placeholder="Ej. celular, viaje, despensa"
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-100"
               />
             </label>
@@ -575,7 +583,7 @@ export default function FlujoPage() {
               type="submit"
               className="rounded-2xl bg-slate-950 px-6 py-4 font-black text-white shadow-lg transition hover:bg-slate-800 lg:col-span-1"
             >
-              Simular
+              {isCardSimulation ? 'Comparar tarjetas' : 'Simular impacto'}
             </button>
           </form>
 

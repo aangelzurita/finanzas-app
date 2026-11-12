@@ -9,7 +9,7 @@ import {
   calculateTotalAmount,
   calculateMonthlyInstallment,
   calculateRemainingInstallments,
-  inferInstallmentStartDate,
+  validateInstallmentAmountSchedule,
 } from '@/lib/credit-card-installments'
 
 type Category = {
@@ -104,11 +104,13 @@ export default function NuevoMsiPage() {
     if (totalAmountPreview <= 0) return fail('Ingresa un monto total o una mensualidad válida.'), false
     if (monthlyAmountPreview <= 0) return fail('Ingresa una mensualidad o un monto total válido.'), false
 
-    if (Number(values.totalAmount) > 0 && Number(values.monthlyAmount) > 0) {
-      const expectedTotal = calculateTotalAmount(Number(values.monthlyAmount), Number(values.totalMonths))
-      if (Math.abs(expectedTotal - Number(values.totalAmount)) > 0.01) {
-        return fail('El monto total no coincide con la mensualidad y el número de meses.'), false
-      }
+    const amountScheduleError = validateInstallmentAmountSchedule(
+      totalAmountPreview,
+      monthlyAmountPreview,
+      Number(values.totalMonths)
+    )
+    if (amountScheduleError) {
+      return fail(amountScheduleError), false
     }
 
     const currentInstallment = Number(values.currentInstallmentNumber)
@@ -119,6 +121,10 @@ export default function NuevoMsiPage() {
 
     if (!values.chargeDay || Number(values.chargeDay) < 1 || Number(values.chargeDay) > 31) {
       return fail('Ingresa un día de cargo válido entre 1 y 31.'), false
+    }
+
+    if (!values.startDate) {
+      return fail('Captura la fecha del primer cargo según el estado de cuenta.'), false
     }
 
     return true
@@ -144,7 +150,7 @@ export default function NuevoMsiPage() {
     const totalMonths = Number(values.totalMonths)
     const currentInstallmentNumber = Number(values.currentInstallmentNumber)
     const chargeDay = Number(values.chargeDay)
-    const startDate = values.startDate || inferInstallmentStartDate(currentInstallmentNumber, chargeDay)
+    const startDate = values.startDate
 
     const { error } = await supabase
       .from('credit_card_installments')

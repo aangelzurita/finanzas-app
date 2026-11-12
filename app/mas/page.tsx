@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import {
   BarChart3,
-  Brain,
   Bell,
   CircleDollarSign,
   FolderTree,
@@ -45,12 +44,6 @@ const sections = [
     description: 'Grupos, cortes y liquidaciones sin duplicar saldos.',
     href: '/compartidos',
     icon: UsersRound,
-  },
-  {
-    title: 'Diagnóstico',
-    description: 'Alertas y decisiones que requieren atención.',
-    href: '/diagnostico',
-    icon: Brain,
   },
   {
     title: 'Obligaciones',

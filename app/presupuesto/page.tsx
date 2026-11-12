@@ -1,16 +1,20 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { formatMoney } from '@/lib/utils'
 import { isBudgetAffectingTransaction } from '@/lib/budget-rules'
+import { getAppDate } from '@/lib/app-date'
 import {
   getPendingInstallmentAmount,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
+import { buildBudgetInsights, buildMonthPeriod } from '@/lib/budget-insights'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MiniStat } from '@/components/ui/MiniStat'
+import type { RecurringCharge } from '@/lib/recurring-charges'
 
 type BudgetRow = {
   id: string
@@ -23,12 +27,14 @@ type BudgetRow = {
 type Category = {
   id: string
   name: string
+  category_type: string
 }
 
 type Transaction = {
   id: string
   transaction_type: string
   category_id: string | null
+  description: string | null
   amount: number
   transaction_date: string
   affects_budget: boolean
@@ -37,12 +43,15 @@ type Transaction = {
 
 export default function PresupuestoPage() {
   const supabase = createClient()
+  const router = useRouter()
+  const appDate = useMemo(() => getAppDate(), [])
 
   const [loading, setLoading] = useState(true)
   const [budgets, setBudgets] = useState<BudgetRow[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [installments, setInstallments] = useState<CreditCardInstallment[]>([])
+  const [recurring, setRecurring] = useState<RecurringCharge[]>([])
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'error' | 'success' | ''>('')
   const [saving, setSaving] = useState(false)
@@ -53,12 +62,11 @@ export default function PresupuestoPage() {
   const [budgetAmount, setBudgetAmount] = useState('')
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
 
-  const today = new Date()
-  const currentMonth = today.getMonth() + 1
-  const currentYear = today.getFullYear()
+  const currentMonth = appDate.getMonth() + 1
+  const currentYear = appDate.getFullYear()
   const currentMonthEnd = useMemo(
-    () => new Date(currentYear, currentMonth, 0, 23, 59, 59, 999),
-    [currentMonth, currentYear]
+    () => buildMonthPeriod(appDate).end,
+    [appDate]
   )
 
   useEffect(() => {
@@ -70,7 +78,7 @@ export default function PresupuestoPage() {
     const { data: sessionData } = await supabase.auth.getSession()
 
     if (!sessionData.session) {
-      window.location.href = '/'
+      router.push('/')
       return
     }
 
@@ -79,6 +87,7 @@ export default function PresupuestoPage() {
       { data: categoriesData, error: categoriesError },
       { data: txData, error: txError },
       { data: installmentData, error: installmentError },
+      { data: recurringData, error: recurringError },
     ] = await Promise.all([
       supabase
         .from('budgets')
@@ -87,27 +96,31 @@ export default function PresupuestoPage() {
         .eq('period_year', currentYear),
       supabase
         .from('categories')
-        .select('id, name')
+        .select('id, name, category_type')
         .eq('category_type', 'expense')
         .eq('is_active', true)
         .order('name'),
       supabase
         .from('transactions')
-        .select('id, transaction_type, category_id, amount, transaction_date, affects_budget, status')
+        .select('id, transaction_type, category_id, description, amount, transaction_date, affects_budget, status')
         .eq('status', 'completed')
-        .eq('affects_budget', true),
+        .eq('affects_budget', true)
+        .gte('transaction_date', buildMonthPeriod(appDate, -12).start.toISOString())
+        .lte('transaction_date', buildMonthPeriod(appDate).end.toISOString()),
       supabase
         .from('credit_card_installments')
         .select('*')
         .neq('status', 'canceled'),
+      supabase.from('recurring_charges').select('*').eq('is_active', true),
     ])
 
-    if (budgetsError || categoriesError || txError || installmentError) {
+    if (budgetsError || categoriesError || txError || installmentError || recurringError) {
       setMessage(
         budgetsError?.message ||
         categoriesError?.message ||
         txError?.message ||
         installmentError?.message ||
+        recurringError?.message ||
         'Error al cargar datos'
       )
       setMessageType('error')
@@ -117,6 +130,7 @@ export default function PresupuestoPage() {
     setCategories((categoriesData as Category[]) ?? [])
     setTransactions((txData as Transaction[]) ?? [])
     setInstallments((installmentData as CreditCardInstallment[]) ?? [])
+    setRecurring((recurringData as RecurringCharge[]) ?? [])
     setLoading(false)
   }
 
@@ -208,6 +222,15 @@ export default function PresupuestoPage() {
     setBudgetAmount('')
   }
 
+  const handleUseSuggestedBudget = (categoryId: string, suggestedAmount: number) => {
+    const currentBudget = budgets.find((budget) => budget.category_id === categoryId)
+    setEditingBudgetId(currentBudget?.id ?? null)
+    setSelectedCategoryId(categoryId)
+    setBudgetAmount(String(suggestedAmount))
+    setShowForm(true)
+    setMessage('')
+  }
+
   const categoryMap = useMemo(() => {
     const map = new Map<string, string>()
     categories.forEach((category) => {
@@ -270,6 +293,21 @@ export default function PresupuestoPage() {
     })
   }, [budgets, transactions, categoryMap, msiPurchaseIds, installmentBudgetAmounts])
 
+  const budgetInsights = useMemo(
+    () =>
+      buildBudgetInsights({
+        transactions,
+        categories,
+        budgets,
+        installments,
+        recurring,
+        referenceDate: appDate,
+        currentPeriod: buildMonthPeriod(appDate),
+        msiPurchaseIds,
+      }),
+    [transactions, categories, budgets, installments, recurring, appDate, msiPurchaseIds]
+  )
+
   const availableCategories = useMemo(() => {
     const usedIds = new Set(budgets.map(b => b.category_id))
     return categories.filter(c => !usedIds.has(c.id) || c.id === selectedCategoryId)
@@ -312,7 +350,7 @@ export default function PresupuestoPage() {
                 <span>/</span>
                 <span className="text-slate-200 font-medium">Presupuesto</span>
               </nav>
-              <h1 className="text-5xl font-extrabold tracking-tight italic uppercase">Budget Control</h1>
+              <h1 className="text-5xl font-extrabold tracking-tight">Presupuesto por categoría</h1>
               <p className="text-slate-400 mt-2 text-lg capitalize">{monthName}</p>
             </div>
 
@@ -355,6 +393,69 @@ export default function PresupuestoPage() {
         <p className="mb-6 rounded-2xl bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm border border-slate-100">
           Las compras normales con tarjeta cuentan como gasto presupuestal. En MSI, el saldo usado de la tarjeta aumenta por el total y el presupuesto mensual se afecta por la mensualidad.
         </p>
+
+        <section className="mb-8 rounded-[2rem] border border-indigo-100 bg-indigo-50/60 p-6 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-indigo-600">Estimación basada en tu historial</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-950">Límites sugeridos para este mes</h2>
+              <p className="mt-2 max-w-4xl text-sm font-bold leading-relaxed text-slate-600">
+                Combina 50% del promedio de 3 meses, 30% de 6 meses y 20% de 12 meses; suma MSI y cargos recurrentes previstos. “Usar sugerencia” solo prepara el formulario: tú decides si guardarla.
+              </p>
+            </div>
+            <Link href="/gastos" className="w-fit rounded-xl border border-indigo-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-indigo-700 transition hover:bg-indigo-100">
+              Ver interpretación de gastos
+            </Link>
+          </div>
+
+          <div className="mt-5 overflow-x-auto rounded-2xl border border-indigo-100 bg-white">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="bg-white">
+                <tr className="border-b border-slate-100 text-xs font-black uppercase tracking-widest text-slate-400">
+                  <th className="px-4 py-3">Categoría</th>
+                  <th className="px-4 py-3">Promedio 3m</th>
+                  <th className="px-4 py-3">Promedio 6m</th>
+                  <th className="px-4 py-3">Promedio 12m</th>
+                  <th className="px-4 py-3">MSI + recurrentes</th>
+                  <th className="px-4 py-3">Límite actual</th>
+                  <th className="px-4 py-3">Sugerencia</th>
+                  <th className="px-4 py-3">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {budgetInsights.slice(0, 8).map((insight) => (
+                  <tr key={insight.categoryId}>
+                    <td className="px-4 py-4 font-black text-slate-950">{insight.categoryName}</td>
+                    <td className="px-4 py-4 font-bold text-slate-600">{formatMoney(insight.average3Months)}</td>
+                    <td className="px-4 py-4 font-bold text-slate-600">{formatMoney(insight.average6Months)}</td>
+                    <td className="px-4 py-4 font-bold text-slate-600">{formatMoney(insight.average12Months)}</td>
+                    <td className="px-4 py-4 font-bold text-indigo-600">
+                      {formatMoney(insight.futureInstallmentSpend + insight.recurringProjected)}
+                    </td>
+                    <td className="px-4 py-4 font-bold text-slate-600">
+                      {insight.currentBudget > 0 ? formatMoney(insight.currentBudget) : 'Sin límite'}
+                    </td>
+                    <td className="px-4 py-4 font-black text-emerald-700">{formatMoney(insight.suggestedBudget)}</td>
+                    <td className="px-4 py-4">
+                      <button
+                        type="button"
+                        onClick={() => handleUseSuggestedBudget(insight.categoryId, insight.suggestedBudget)}
+                        className="whitespace-nowrap rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                      >
+                        {insight.currentBudget > 0 ? 'Ajustar límite' : 'Agregar límite'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {budgetInsights.length === 0 && (
+              <p className="px-5 py-8 text-center text-sm font-bold text-slate-500">
+                Aún no hay suficiente historial para estimar límites.
+              </p>
+            )}
+          </div>
+        </section>
 
         {showForm && (
           <div className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-2xl mb-8 animate-in fade-in slide-in-from-top-4 duration-300">

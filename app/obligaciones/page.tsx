@@ -14,6 +14,7 @@ import {
   type Reminder,
 } from '@/lib/dashboard'
 import {
+  getInstallmentAmount,
   getInstallmentDisplayState,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
@@ -88,7 +89,10 @@ export default function ObligacionesPage() {
     [installments]
   )
   const installmentTotal = useMemo(
-    () => activeInstallments.reduce((acc, plan) => acc + Number(plan.monthly_amount || 0), 0),
+    () => activeInstallments.reduce(
+      (acc, plan) => acc + getInstallmentAmount(plan, getInstallmentDisplayState(plan).currentInstallmentNumber),
+      0
+    ),
     [activeInstallments]
   )
   const debtTotal = useMemo(
@@ -211,7 +215,9 @@ export default function ObligacionesPage() {
                           MSI {state.currentInstallmentNumber}/{plan.total_months} · no es salida adicional fuera del pago TDC
                         </p>
                       </div>
-                      <p className="font-black text-sky-600">{formatMoney(Number(plan.monthly_amount || 0))}</p>
+                      <p className="font-black text-sky-600">
+                        {formatMoney(getInstallmentAmount(plan, state.currentInstallmentNumber))}
+                      </p>
                     </div>
                   </Link>
                 )

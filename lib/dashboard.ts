@@ -1,6 +1,7 @@
 import { formatMoney } from '@/lib/utils'
 import { isBudgetAffectingTransaction, isCompletedTransaction } from '@/lib/budget-rules'
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   getInstallmentDisplayState,
   type CreditCardInstallment,
@@ -278,7 +279,7 @@ export function buildConsolidatedCommitments(
       id: `installment-${plan.id}`,
       title: plan.description,
       dueDate: getInstallmentChargeDate(plan, displayState.currentInstallmentNumber).toISOString(),
-      amount: Number(plan.monthly_amount || 0),
+      amount: getInstallmentAmount(plan, displayState.currentInstallmentNumber),
       tone: 'sky',
       meta: `MSI próxima ${displayState.currentInstallmentNumber}/${plan.total_months}`,
     }

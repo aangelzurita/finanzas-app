@@ -1,7 +1,8 @@
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   type CreditCardInstallment,
-} from '@/lib/credit-card-installments'
+} from './credit-card-installments.ts'
 
 export type StatementTransaction = {
   id: string
@@ -48,6 +49,7 @@ export type CreditCardStatementPreview = {
   periodStartDate: string
   periodEndDate: string
   paymentDueDate: string
+  previousStatementBalance: number | null
   normalPurchases: number
   msiPurchaseTotalsExcluded: number
   msiCharges: number
@@ -71,7 +73,12 @@ function parseDateOnly(value: string | Date) {
     return new Date(value.getFullYear(), value.getMonth(), value.getDate())
   }
 
-  return new Date(`${value.slice(0, 10)}T12:00:00`)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T12:00:00`)
+  }
+
+  const timestamp = new Date(value)
+  return new Date(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate(), 12)
 }
 
 function formatDateOnly(value: Date) {
@@ -129,13 +136,22 @@ export function calculateCreditCardStatementPreview({
   installments,
   referenceDate = new Date(),
   cutoffDate,
+  previousStatementBalance = null,
 }: {
   card: StatementCard
   transactions: StatementTransaction[]
   installments: CreditCardInstallment[]
   referenceDate?: string | Date
   cutoffDate?: string | Date
+  previousStatementBalance?: number | null
 }): CreditCardStatementPreview {
+  if (
+    previousStatementBalance !== null &&
+    (!Number.isFinite(previousStatementBalance) || previousStatementBalance < 0)
+  ) {
+    throw new RangeError('El saldo del corte anterior debe ser un importe válido y no negativo.')
+  }
+
   const selectedCutoffDate = cutoffDate
     ? parseDateOnly(cutoffDate)
     : getLastClosedCutoffDate(card.statement_cutoff_day, referenceDate)
@@ -232,20 +248,27 @@ export function calculateCreditCardStatementPreview({
     if (plan.status === 'canceled') return acc
     if (msiMonthlyTransactionIds.has(plan.id)) return acc
 
+    let planCharges = 0
     for (let installmentNumber = 1; installmentNumber <= Number(plan.total_months || 0); installmentNumber += 1) {
       const chargeDate = getInstallmentChargeDate(plan, installmentNumber)
       if (isInRange(chargeDate, periodStartDate, periodEndDate)) {
-        return acc + Number(plan.monthly_amount || 0)
+        planCharges += getInstallmentAmount(plan, installmentNumber)
       }
     }
 
-    return acc
+    return acc + planCharges
   }, 0)
 
   const msiCharges = roundMoney(msiChargesFromTransactions + scheduledMsiCharges)
   const estimatedNoInterestPayment = Math.max(
     0,
-    roundMoney(normalPurchases + msiCharges - refunds)
+    roundMoney(
+      (previousStatementBalance ?? 0)
+        + normalPurchases
+        + msiCharges
+        - refunds
+        - payments
+    )
   )
 
   return {
@@ -254,6 +277,7 @@ export function calculateCreditCardStatementPreview({
     periodStartDate: formatDateOnly(periodStartDate),
     periodEndDate: formatDateOnly(periodEndDate),
     paymentDueDate: formatDateOnly(paymentDueDate),
+    previousStatementBalance,
     normalPurchases: roundMoney(normalPurchases),
     msiPurchaseTotalsExcluded: roundMoney(msiPurchaseTotalsExcluded),
     msiCharges,

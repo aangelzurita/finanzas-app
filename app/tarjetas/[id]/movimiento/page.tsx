@@ -10,7 +10,7 @@ import {
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
 import {
-  calculateFirstInstallmentPaymentDate,
+  calculateDefaultFirstInstallmentChargeDate,
   calculateMonthlyInstallment,
   calculateTotalAmount,
   createInstallmentPlan,
@@ -24,8 +24,6 @@ type CreditCard = {
   account_id: string
   name: string
   bank: string | null
-  statement_cutoff_day: number
-  payment_due_day: number
   current_balance: number
 }
 
@@ -98,7 +96,7 @@ export default function TarjetaMovimientoPage() {
     ] = await Promise.all([
       supabase
         .from('credit_cards')
-        .select('id, account_id, name, bank, statement_cutoff_day, payment_due_day, current_balance')
+        .select('id, account_id, name, bank, current_balance')
         .eq('id', cardId)
         .single(),
       supabase
@@ -179,24 +177,20 @@ export default function TarjetaMovimientoPage() {
   const isMonthlyMsiCapture =
     movementType === 'credit_card_purchase' && isMsi && msiCaptureMode === 'monthly'
 
-  const firstMsiPaymentDate = useMemo(() => {
+  const defaultFirstMsiChargeDate = useMemo(() => {
     if (!card || !transactionDate) return ''
-    return calculateFirstInstallmentPaymentDate(transactionDate, {
-      statementCutoffDay: card.statement_cutoff_day,
-      paymentDueDay: card.payment_due_day,
-    })
+    return calculateDefaultFirstInstallmentChargeDate(transactionDate)
   }, [card, transactionDate])
 
   useEffect(() => {
     if (!card || movementType !== 'credit_card_purchase' || !isMsi) return
 
-    setInstallmentChargeDay(String(card.payment_due_day))
-
     if (msiTimingMode === 'new') {
       setInstallmentCurrentNumber('1')
-      setInstallmentStartDate(firstMsiPaymentDate)
+      setInstallmentStartDate(defaultFirstMsiChargeDate)
+      setInstallmentChargeDay(defaultFirstMsiChargeDate ? String(Number(defaultFirstMsiChargeDate.slice(-2))) : '')
     }
-  }, [card, firstMsiPaymentDate, isMsi, movementType, msiTimingMode])
+  }, [card, defaultFirstMsiChargeDate, isMsi, movementType, msiTimingMode])
 
   const validate = () => {
     const parsedAmount =
@@ -221,6 +215,11 @@ export default function TarjetaMovimientoPage() {
       }
 
       if (isMsi) {
+        if (!installmentStartDate) {
+          fail('Captura la fecha del primer cargo mensual según el banco.')
+          return false
+        }
+
         const installmentValidation = validateInstallmentDraft({
           categoryId,
           totalAmount: installmentTotalAmountPreview,
@@ -228,6 +227,7 @@ export default function TarjetaMovimientoPage() {
           totalMonths: Number(installmentTotalMonths),
           currentInstallmentNumber: Number(installmentCurrentNumber),
           chargeDay: Number(installmentChargeDay),
+          startDate: installmentStartDate,
         })
 
         if (installmentValidation) {
@@ -235,13 +235,6 @@ export default function TarjetaMovimientoPage() {
           return false
         }
 
-        if (msiCaptureMode === 'total' && Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
-          const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
-          if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
-            fail('El monto total no coincide con la mensualidad y el número de meses del MSI.')
-            return false
-          }
-        }
       }
     }
 
@@ -348,7 +341,7 @@ export default function TarjetaMovimientoPage() {
           totalMonths: Number(installmentTotalMonths),
           currentInstallmentNumber: Number(installmentCurrentNumber),
           chargeDay: Number(installmentChargeDay),
-          startDate: installmentStartDate || undefined,
+          startDate: installmentStartDate,
           notes: installmentNotes,
         })
       }
@@ -578,8 +571,8 @@ export default function TarjetaMovimientoPage() {
                         </div>
                         <p className="mt-2 text-xs font-medium text-slate-500">
                           {msiTimingMode === 'new'
-                            ? 'Usamos la fecha de compra, el corte y el límite de pago de la tarjeta.'
-                            : 'Úsalo para una compra que ya aparece en tu estado de cuenta.'}
+                            ? 'La fecha se propone con la compra; confirma o ajusta el primer cargo según el banco.'
+                            : 'Captura el plan según los cargos que ya aparecen en el estado de cuenta.'}
                         </p>
                       </FormField>
                     </div>
@@ -681,35 +674,36 @@ export default function TarjetaMovimientoPage() {
                       ) : null}
                     </FormField>
 
-                    <FormField label="Día límite de pago">
+                    <FormField label="Día mensual del cargo MSI">
                       <input
                         type="number"
                         min="1"
                         max="31"
-                        readOnly
                         className="form-input border-sky-100 bg-sky-50/60 font-mono font-bold text-slate-900"
                         value={installmentChargeDay}
-                        onChange={() => undefined}
-                        placeholder={card ? String(card.payment_due_day) : '15'}
+                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
+                        placeholder="Se toma de la primera fecha"
                       />
                       <p className="mt-1.5 text-xs text-sky-700 font-medium">
-                        Se toma automáticamente de la tarjeta.
+                        Se propone desde la primera fecha. Ajústalo si el banco usa otro día; el corte no lo determina.
                       </p>
                     </FormField>
 
-                    <FormField label={msiTimingMode === 'new' ? 'Primera fecha límite de pago' : 'Fecha del próximo pago'}>
+                    <FormField label="Fecha del primer cargo mensual (1/x)">
                       <input
                         type="date"
                         className="form-input"
-                        readOnly={msiTimingMode === 'new'}
+                        required
                         value={installmentStartDate}
-                        onChange={(e) => setInstallmentStartDate(e.target.value)}
+                        onChange={(e) => {
+                          const chargeDate = e.target.value
+                          setInstallmentStartDate(chargeDate)
+                          setInstallmentChargeDay(chargeDate ? String(Number(chargeDate.slice(-2))) : '')
+                        }}
                       />
-                      {msiTimingMode === 'new' && card ? (
-                        <p className="mt-1.5 text-xs text-sky-700 font-medium">
-                          Corte día {card.statement_cutoff_day}; pago límite día {card.payment_due_day}.
-                        </p>
-                      ) : null}
+                      <p className="mt-1.5 text-xs text-sky-700 font-medium">
+                        Usa la fecha del estado de cuenta. Para una compra nueva se propone la fecha de compra y puedes corregirla.
+                      </p>
                     </FormField>
 
                     <FormField label="Descripción MSI">
@@ -726,6 +720,9 @@ export default function TarjetaMovimientoPage() {
                       Total calculado: {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} · Mensualidad: {installmentMonthlyAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
                       <p className="mt-2 text-xs text-sky-700">
                         Saldo de tarjeta por total; presupuesto del mes por mensualidad.
+                      </p>
+                      <p className="mt-1 text-xs text-sky-700">
+                        La última mensualidad se ajusta por centavos para sumar el total exacto.
                       </p>
                     </div>
 

@@ -157,9 +157,13 @@ export function InstallmentPlanForm({
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
-            <Field label="Fecha de inicio (opcional)" helper="Si la dejas vacía, se infiere según la próxima mensualidad.">
+            <Field
+              label="Fecha del primer cargo (1/x)"
+              helper="Usa la fecha del primer cargo que aparece en el estado; no el corte ni la fecha límite de pago."
+            >
               <input
                 type="date"
+                required
                 className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50/50 px-5 py-4 font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none transition-all"
                 value={values.startDate}
                 onChange={(e) => onChange('startDate', e.target.value)}
@@ -206,6 +210,9 @@ export function InstallmentPlanForm({
               </div>
             </Field>
           </div>
+          <p className="text-xs font-medium text-slate-500">
+            La última mensualidad se ajusta por centavos para que todas sumen el total exacto.
+          </p>
 
           <Field label="Notas (opcional)">
             <textarea

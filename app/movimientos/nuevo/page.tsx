@@ -10,7 +10,7 @@ import {
   type TransactionLedgerEntry,
 } from '@/lib/accounting/transactions'
 import {
-  calculateFirstInstallmentPaymentDate,
+  calculateDefaultFirstInstallmentChargeDate,
   calculateMonthlyInstallment,
   calculateTotalAmount,
   createInstallmentPlan,
@@ -394,25 +394,23 @@ export default function NuevoMovimientoPage() {
     return scored.sort((a, b) => b.score - a.score)[0] || null
   }, [ownLiquidAccounts, paymentAmountForSuggestion, selectedCreditCard])
 
-  const firstMsiPaymentDate = useMemo(() => {
+  const defaultFirstMsiChargeDate = useMemo(() => {
     if (!selectedCreditCard || !transactionDate) return ''
-    return calculateFirstInstallmentPaymentDate(transactionDate, {
-      statementCutoffDay: selectedCreditCard.statement_cutoff_day,
-      paymentDueDay: selectedCreditCard.payment_due_day,
-    })
+    return calculateDefaultFirstInstallmentChargeDate(transactionDate)
   }, [selectedCreditCard, transactionDate])
 
   useEffect(() => {
     if (!selectedCreditCard || transactionType !== 'credit_card_purchase' || !isMsi) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setInstallmentChargeDay(String(selectedCreditCard.payment_due_day))
-
     if (msiTimingMode === 'new') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInstallmentCurrentNumber('1')
-      setInstallmentStartDate(firstMsiPaymentDate)
+      setInstallmentStartDate(defaultFirstMsiChargeDate)
+      setInstallmentChargeDay(
+        defaultFirstMsiChargeDate ? String(Number(defaultFirstMsiChargeDate.slice(-2))) : ''
+      )
     }
-  }, [firstMsiPaymentDate, isMsi, msiTimingMode, selectedCreditCard, transactionType])
+  }, [defaultFirstMsiChargeDate, isMsi, msiTimingMode, selectedCreditCard, transactionType])
 
   const handleTypeChange = (value: TransactionType) => {
     setTransactionType(value)
@@ -489,6 +487,12 @@ export default function NuevoMovimientoPage() {
     }
 
     if (transactionType === 'credit_card_purchase' && isMsi) {
+      if (!installmentStartDate) {
+        setMessage('Captura la fecha del primer cargo mensual según el banco.')
+        setSaving(false)
+        return
+      }
+
       const installmentValidation = validateInstallmentDraft({
         categoryId,
         totalAmount: installmentTotalAmountPreview,
@@ -496,6 +500,7 @@ export default function NuevoMovimientoPage() {
         totalMonths: Number(installmentTotalMonths),
         currentInstallmentNumber: Number(installmentCurrentNumber),
         chargeDay: Number(installmentChargeDay),
+        startDate: installmentStartDate,
       })
 
       if (installmentValidation) {
@@ -504,14 +509,6 @@ export default function NuevoMovimientoPage() {
         return
       }
 
-      if (msiCaptureMode === 'total' && Number(amount) > 0 && Number(installmentMonthlyAmount) > 0) {
-        const expectedTotal = calculateTotalAmount(Number(installmentMonthlyAmount), Number(installmentTotalMonths))
-        if (Math.abs(expectedTotal - Number(amount)) > 0.01) {
-          setMessage('El monto total no coincide con la mensualidad y el número de meses del MSI.')
-          setSaving(false)
-          return
-        }
-      }
     }
 
     if (transactionType === 'credit_card_refund' && !relatedCreditCardId) {
@@ -641,7 +638,7 @@ export default function NuevoMovimientoPage() {
           totalMonths: Number(installmentTotalMonths),
           currentInstallmentNumber: Number(installmentCurrentNumber),
           chargeDay: Number(installmentChargeDay),
-          startDate: installmentStartDate || undefined,
+          startDate: installmentStartDate,
           notes: installmentNotes,
         })
       }
@@ -1060,8 +1057,8 @@ export default function NuevoMovimientoPage() {
                       </div>
                       <p className="mt-2 text-xs font-bold text-slate-500">
                         {msiTimingMode === 'new'
-                          ? 'Usamos la fecha de compra, el corte y el límite de pago de la tarjeta.'
-                          : 'Úsalo para una compra que ya aparece en tu estado de cuenta.'}
+                          ? 'La fecha se propone con la compra; confirma o ajusta el primer cargo según el banco.'
+                          : 'Captura el plan según los cargos que ya aparecen en el estado de cuenta.'}
                       </p>
                     </div>
 
@@ -1172,38 +1169,39 @@ export default function NuevoMovimientoPage() {
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Día límite de pago</label>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Día mensual del cargo MSI</label>
                       <input
                         type="number"
                         min="1"
                         max="31"
-                        readOnly
                         className="w-full rounded-2xl border-2 border-sky-100 bg-sky-50/60 p-4 font-mono font-bold text-slate-900 focus:ring-0 transition-all text-lg"
                         value={installmentChargeDay}
-                        onChange={() => undefined}
-                        placeholder={selectedCreditCard ? String(selectedCreditCard.payment_due_day) : '15'}
+                        onChange={(e) => setInstallmentChargeDay(e.target.value)}
+                        placeholder="Se toma de la primera fecha"
                       />
                       <p className="mt-1.5 text-xs text-sky-700 font-bold">
-                        Se toma automáticamente de la tarjeta.
+                        Se propone desde la primera fecha. Ajústalo si el banco usa otro día; el corte no lo determina.
                       </p>
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
-                        {msiTimingMode === 'new' ? 'Primera fecha límite de pago' : 'Fecha del próximo pago'}
+                        Fecha del primer cargo mensual (1/x)
                       </label>
                       <input
                         type="date"
                         className="w-full rounded-2xl border-2 border-slate-100 p-4 font-bold text-slate-900 focus:border-slate-900 focus:ring-0 transition-all text-lg"
-                        readOnly={msiTimingMode === 'new'}
+                        required
                         value={installmentStartDate}
-                        onChange={(e) => setInstallmentStartDate(e.target.value)}
+                        onChange={(e) => {
+                          const chargeDate = e.target.value
+                          setInstallmentStartDate(chargeDate)
+                          setInstallmentChargeDay(chargeDate ? String(Number(chargeDate.slice(-2))) : '')
+                        }}
                       />
-                      {msiTimingMode === 'new' && selectedCreditCard ? (
-                        <p className="mt-1.5 text-xs text-sky-700 font-bold">
-                          Corte día {selectedCreditCard.statement_cutoff_day}; pago límite día {selectedCreditCard.payment_due_day}.
-                        </p>
-                      ) : null}
+                      <p className="mt-1.5 text-xs text-sky-700 font-bold">
+                        Usa la fecha del estado de cuenta. Para una compra nueva se propone la fecha de compra y puedes corregirla.
+                      </p>
                     </div>
 
                     <div className="col-span-2 md:col-span-1">
@@ -1223,6 +1221,9 @@ export default function NuevoMovimientoPage() {
                         Total calculado: {installmentTotalAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} · Mensualidad: {installmentMonthlyAmountPreview.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
                         <p className="mt-2 text-xs text-sky-700">
                           Saldo de tarjeta por total; presupuesto del mes por mensualidad.
+                        </p>
+                        <p className="mt-1 text-xs text-sky-700">
+                          La última mensualidad se ajusta por centavos para sumar el total exacto.
                         </p>
                       </div>
                     </div>

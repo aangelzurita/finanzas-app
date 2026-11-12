@@ -13,6 +13,7 @@ import {
   type CreditCardStatementPreview,
 } from '@/lib/credit-card-statements'
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   getPendingInstallmentAmount,
   getPendingInstallmentCount,
@@ -121,6 +122,7 @@ export default function TarjetaDetallePage() {
   const [statementHistory, setStatementHistory] = useState<CreditCardStatementHistory[]>([])
   const [statementPreview, setStatementPreview] = useState<CreditCardStatementPreview | null>(null)
   const [statementCutoffInput, setStatementCutoffInput] = useState('')
+  const [previousStatementBalanceInput, setPreviousStatementBalanceInput] = useState('')
   const [paymentDueInput, setPaymentDueInput] = useState('')
   const [noInterestInput, setNoInterestInput] = useState('')
   const [minimumInput, setMinimumInput] = useState('')
@@ -271,6 +273,18 @@ export default function TarjetaDetallePage() {
     return (data as CreditCardStatementHistory[]) ?? []
   }
 
+  const getPreviousStatementBalance = (cutoffDate: string) => {
+    const previousStatement = statementHistory
+      .filter((statement) =>
+        statement.cutoff_date < cutoffDate
+        && statement.status !== 'canceled'
+        && statement.bank_no_interest_payment !== null
+      )
+      .sort((a, b) => b.cutoff_date.localeCompare(a.cutoff_date))[0]
+
+    return previousStatement ? Number(previousStatement.bank_no_interest_payment) : null
+  }
+
   const usagePercent = useMemo(() => {
     if (!card?.credit_limit || card.credit_limit <= 0) return 0
     return (Math.max(0, Number(card.current_balance || 0)) / Number(card.credit_limit || 0)) * 100
@@ -378,7 +392,7 @@ export default function TarjetaDetallePage() {
           kind: 'installment_info',
           id: `installment-info-${plan.id}-${installmentNumber}`,
           transaction_type: 'installment_info',
-          amount: Number(plan.monthly_amount || 0),
+          amount: getInstallmentAmount(plan, installmentNumber),
           description: `${plan.description} MSI ${installmentNumber}/${plan.total_months}`,
           transaction_date: chargeDate.toISOString(),
           status: installmentNumber <= Number(plan.last_processed_installment_number || 0) ? 'processed' : 'scheduled',
@@ -399,14 +413,25 @@ export default function TarjetaDetallePage() {
   const openStatementClose = () => {
     if (!card) return
 
-    const preview = calculateCreditCardStatementPreview({
+    const initialPreview = calculateCreditCardStatementPreview({
       card,
       transactions,
       installments,
     })
+    const previousStatementBalance = getPreviousStatementBalance(initialPreview.cutoffDate)
+    const preview = calculateCreditCardStatementPreview({
+      card,
+      transactions,
+      installments,
+      cutoffDate: initialPreview.cutoffDate,
+      previousStatementBalance,
+    })
 
     setStatementPreview(preview)
     setStatementCutoffInput(preview.cutoffDate)
+    setPreviousStatementBalanceInput(
+      previousStatementBalance === null ? '' : previousStatementBalance.toFixed(2)
+    )
     setPaymentDueInput(preview.paymentDueDate)
     setNoInterestInput(String(preview.estimatedNoInterestPayment.toFixed(2)))
     setMinimumInput(String(Number(card.minimum_payment || preview.suggestedMinimumPayment || 0).toFixed(2)))
@@ -419,16 +444,44 @@ export default function TarjetaDetallePage() {
   const handleStatementCutoffChange = (value: string) => {
     if (!card || !value) return
 
+    const previousStatementBalance = getPreviousStatementBalance(value)
     const preview = calculateCreditCardStatementPreview({
       card,
       transactions,
       installments,
       cutoffDate: value,
+      previousStatementBalance,
     })
 
     setStatementCutoffInput(value)
     setStatementPreview(preview)
+    setPreviousStatementBalanceInput(
+      previousStatementBalance === null ? '' : previousStatementBalance.toFixed(2)
+    )
     setPaymentDueInput(preview.paymentDueDate)
+    setNoInterestInput(String(preview.estimatedNoInterestPayment.toFixed(2)))
+  }
+
+  const handlePreviousStatementBalanceChange = (value: string) => {
+    setPreviousStatementBalanceInput(value)
+    if (!card || !statementCutoffInput) return
+
+    const previousStatementBalance = value === '' ? null : Number(value)
+    if (
+      previousStatementBalance !== null
+      && (!Number.isFinite(previousStatementBalance) || previousStatementBalance < 0)
+    ) {
+      return
+    }
+
+    const preview = calculateCreditCardStatementPreview({
+      card,
+      transactions,
+      installments,
+      cutoffDate: statementCutoffInput,
+      previousStatementBalance,
+    })
+    setStatementPreview(preview)
     setNoInterestInput(String(preview.estimatedNoInterestPayment.toFixed(2)))
   }
 
@@ -514,6 +567,16 @@ export default function TarjetaDetallePage() {
     if (!card || !statementPreview) return
     if (!allMovementsConfirmed) {
       setMessage('Confirma que ya cargaste todos los movimientos del periodo antes de cerrar el corte.')
+      return
+    }
+
+    const previousStatementBalance = Number(previousStatementBalanceInput)
+    if (
+      previousStatementBalanceInput === ''
+      || !Number.isFinite(previousStatementBalance)
+      || previousStatementBalance < 0
+    ) {
+      setMessage('Ingresa el saldo para no generar intereses del corte anterior. Si no había saldo, ingresa 0.')
       return
     }
 
@@ -901,6 +964,28 @@ export default function TarjetaDetallePage() {
               </label>
             </div>
 
+            <label className="mt-4 block">
+              <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">
+                Saldo para no generar intereses del corte anterior
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={previousStatementBalanceInput}
+                onChange={(event) => handlePreviousStatementBalanceChange(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-lg font-black text-slate-900 outline-none transition focus:border-slate-900"
+              />
+              <span className="mt-2 block text-xs font-bold text-slate-500">
+                Se llena con el último corte guardado. Para el primer corte, ingresa el monto del estado anterior; los pagos y reembolsos de este periodo se restan automáticamente.
+              </span>
+              {statementPreview.previousStatementBalance === null && (
+                <span className="mt-2 block rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                  No hay un corte anterior guardado; confirma este saldo con el estado bancario antes de cerrar.
+                </span>
+              )}
+            </label>
+
             <div className="mt-6 grid gap-4 md:grid-cols-4">
               <MiniStat label="Periodo" value={`${formatDateOnlyLabel(statementPreview.periodStartDate)} - ${formatDateOnlyLabel(statementPreview.periodEndDate)}`} />
               <MiniStat label="Fecha de corte" value={formatDateOnlyLabel(statementPreview.cutoffDate)} />
@@ -1170,7 +1255,7 @@ export default function TarjetaDetallePage() {
                   <div key={plan.id} className="px-8 py-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <p className="font-extrabold text-slate-900">
-                        {plan.description} — {formatMoney(Number(plan.monthly_amount || 0))} (Próxima {displayState.currentInstallmentNumber}/{plan.total_months})
+                        {plan.description} — {formatMoney(getInstallmentAmount(plan, displayState.currentInstallmentNumber))} (Próxima {displayState.currentInstallmentNumber}/{plan.total_months})
                       </p>
                       <p className="text-sm text-slate-500 mt-1">
                         Después de esta quedan {displayState.remainingInstallments} mensualidades · Día {plan.charge_day}
@@ -1226,7 +1311,7 @@ export default function TarjetaDetallePage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px]">
+            <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50/50">
                 <tr className="text-left">
                   <th className="px-8 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Fecha</th>
@@ -1234,6 +1319,7 @@ export default function TarjetaDetallePage() {
                   <th className="px-8 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
                   <th className="px-8 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Monto</th>
                   <th className="px-8 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Estatus</th>
+                  <th className="px-8 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Acciones</th>
                 </tr>
               </thead>
 
@@ -1284,12 +1370,28 @@ export default function TarjetaDetallePage() {
                         ) : null}
                       </div>
                     </td>
+
+                    <td className="px-8 py-5 text-sm">
+                      {tx.kind === 'transaction' ? (
+                        <Link
+                          href={`/movimientos/${tx.id}/editar`}
+                          aria-label={`Editar movimiento ${tx.description || tx.id}`}
+                          className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 font-bold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                        >
+                          Editar
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400" title="Mensualidad informativa; no es un movimiento real">
+                          —
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
 
                 {historyRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-8 py-20 text-center">
+                    <td colSpan={6} className="px-8 py-20 text-center">
                       <div className="text-4xl mb-3 opacity-20">🧾</div>
                       <p className="text-slate-400 font-medium italic">No hay movimientos asociados a esta tarjeta.</p>
                     </td>

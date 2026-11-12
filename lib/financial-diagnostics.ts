@@ -1,5 +1,6 @@
 import { isBudgetAffectingTransaction } from '@/lib/budget-rules'
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   type CreditCardInstallment,
 } from '@/lib/credit-card-installments'
@@ -420,7 +421,10 @@ function sumSpendByCategory({
     for (let installmentNumber = 1; installmentNumber <= Number(plan.total_months || 0); installmentNumber += 1) {
       const chargeDate = getInstallmentChargeDate(plan, installmentNumber)
       if (!isWithin(chargeDate, start, end)) continue
-      amounts.set(plan.category_id, Number(amounts.get(plan.category_id) || 0) + Number(plan.monthly_amount || 0))
+      amounts.set(
+        plan.category_id,
+        Number(amounts.get(plan.category_id) || 0) + getInstallmentAmount(plan, installmentNumber)
+      )
     }
   })
 

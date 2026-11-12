@@ -35,13 +35,8 @@ export type InstallmentPlanDraft = {
   totalMonths: number
   currentInstallmentNumber: number
   chargeDay: number
-  startDate?: string
+  startDate: string
   notes?: string | null
-}
-
-export type CreditCardBillingCycle = {
-  statementCutoffDay: number
-  paymentDueDay: number
 }
 
 function safeDayForMonth(year: number, month: number, day: number) {
@@ -79,20 +74,8 @@ function parseLocalDate(value: string | Date) {
   return new Date(`${value.slice(0, 10)}T12:00:00`)
 }
 
-export function calculateFirstInstallmentPaymentDate(
-  purchaseDate: string | Date,
-  cycle: CreditCardBillingCycle
-) {
-  const purchase = parseLocalDate(purchaseDate)
-  const cutoffDay = Number(cycle.statementCutoffDay)
-  const paymentDueDay = Number(cycle.paymentDueDay)
-
-  const cutoffMonthOffset = purchase.getDate() <= safeDayForMonth(purchase.getFullYear(), purchase.getMonth(), cutoffDay) ? 0 : 1
-  const cutoffDate = buildDate(purchase.getFullYear(), purchase.getMonth() + cutoffMonthOffset, cutoffDay)
-  const paymentMonthOffset = paymentDueDay <= cutoffDate.getDate() ? 1 : 0
-  const paymentDate = buildDate(cutoffDate.getFullYear(), cutoffDate.getMonth() + paymentMonthOffset, paymentDueDay)
-
-  return formatISODate(paymentDate)
+export function calculateDefaultFirstInstallmentChargeDate(purchaseDate: string | Date) {
+  return formatISODate(parseLocalDate(purchaseDate))
 }
 
 export function getInstallmentDueNumber(
@@ -126,6 +109,33 @@ export function getInstallmentChargeDate(
   )
 }
 
+export function getInstallmentAmount(
+  plan: Pick<CreditCardInstallment, 'total_amount' | 'monthly_amount' | 'total_months'>,
+  installmentNumber: number
+) {
+  const totalMonths = Number(plan.total_months || 0)
+  const monthlyCents = Math.round(Number(plan.monthly_amount || 0) * 100)
+  const totalCents = Math.round(Number(plan.total_amount || 0) * 100)
+
+  if (
+    !Number.isInteger(installmentNumber) ||
+    installmentNumber < 1 ||
+    installmentNumber > totalMonths ||
+    monthlyCents <= 0
+  ) {
+    return 0
+  }
+
+  if (installmentNumber === totalMonths && totalCents > 0) {
+    const finalAmountCents = totalCents - monthlyCents * (totalMonths - 1)
+    if (finalAmountCents > 0) {
+      return finalAmountCents / 100
+    }
+  }
+
+  return monthlyCents / 100
+}
+
 export function getPendingInstallmentCount(
   plan: Pick<
     CreditCardInstallment,
@@ -144,11 +154,21 @@ export function getPendingInstallmentCount(
 export function getPendingInstallmentAmount(
   plan: Pick<
     CreditCardInstallment,
-    'status' | 'total_months' | 'current_installment_number' | 'last_processed_installment_number' | 'charge_day' | 'start_date' | 'monthly_amount'
+    'status' | 'total_amount' | 'total_months' | 'current_installment_number' | 'last_processed_installment_number' | 'charge_day' | 'start_date' | 'monthly_amount'
   >,
   referenceDate = new Date()
 ) {
-  return getPendingInstallmentCount(plan, referenceDate) * Number(plan.monthly_amount || 0)
+  if (plan.status !== 'active') return 0
+
+  const dueNumber = getInstallmentDueNumber(plan, referenceDate)
+  const lastProcessed = getLastProcessedInstallmentNumber(plan)
+  let amount = 0
+
+  for (let installmentNumber = lastProcessed + 1; installmentNumber <= dueNumber; installmentNumber += 1) {
+    amount += getInstallmentAmount(plan, installmentNumber)
+  }
+
+  return Number(amount.toFixed(2))
 }
 
 export function calculateMonthlyInstallment(totalAmount: number, totalMonths: number) {
@@ -165,6 +185,37 @@ export function calculateTotalAmount(monthlyAmount: number, totalMonths: number)
   }
 
   return Number((monthlyAmount * totalMonths).toFixed(2))
+}
+
+export function validateInstallmentAmountSchedule(
+  totalAmount: number,
+  monthlyAmount: number,
+  totalMonths: number
+) {
+  if (
+    !Number.isFinite(totalAmount) ||
+    !Number.isFinite(monthlyAmount) ||
+    !Number.isInteger(totalMonths) ||
+    totalAmount <= 0 ||
+    monthlyAmount <= 0 ||
+    totalMonths <= 0
+  ) {
+    return 'Ingresa un total, una mensualidad y un número de meses válidos.'
+  }
+
+  const totalCents = Math.round(totalAmount * 100)
+  const monthlyCents = Math.round(monthlyAmount * 100)
+  const finalAmountCents = totalCents - monthlyCents * (totalMonths - 1)
+  const roundingToleranceCents = Math.max(0, totalMonths - 1)
+
+  if (
+    finalAmountCents <= 0 ||
+    Math.abs(finalAmountCents - monthlyCents) > roundingToleranceCents
+  ) {
+    return 'El total no coincide con las mensualidades; revisa el monto o los meses.'
+  }
+
+  return null
 }
 
 export function calculateRemainingInstallments(totalMonths: number, currentInstallmentNumber: number) {
@@ -205,16 +256,6 @@ export function getInstallmentDisplayState(
   }
 }
 
-export function inferInstallmentStartDate(
-  currentInstallmentNumber: number,
-  chargeDay: number,
-  referenceDate = new Date()
-) {
-  const currentChargeDate = buildDate(referenceDate.getFullYear(), referenceDate.getMonth(), chargeDay)
-  currentChargeDate.setMonth(currentChargeDate.getMonth() - (currentInstallmentNumber - 1))
-  return formatISODate(currentChargeDate)
-}
-
 export function validateInstallmentDraft(draft: {
   categoryId: string
   totalAmount: number
@@ -222,11 +263,18 @@ export function validateInstallmentDraft(draft: {
   totalMonths: number
   currentInstallmentNumber: number
   chargeDay: number
+  startDate: string
 }) {
   if (!draft.categoryId) return 'Selecciona una categoría para el MSI.'
   if (!Number.isFinite(draft.totalAmount) || draft.totalAmount <= 0) return 'Ingresa un monto total válido para el MSI.'
   if (!Number.isFinite(draft.monthlyAmount) || draft.monthlyAmount <= 0) return 'Ingresa una mensualidad válida para el MSI.'
   if (!Number.isInteger(draft.totalMonths) || draft.totalMonths <= 0) return 'Ingresa los meses totales del MSI.'
+  const amountScheduleError = validateInstallmentAmountSchedule(
+    draft.totalAmount,
+    draft.monthlyAmount,
+    draft.totalMonths
+  )
+  if (amountScheduleError) return amountScheduleError
   if (
     !Number.isInteger(draft.currentInstallmentNumber) ||
     draft.currentInstallmentNumber < 1 ||
@@ -236,6 +284,9 @@ export function validateInstallmentDraft(draft: {
   }
   if (!Number.isInteger(draft.chargeDay) || draft.chargeDay < 1 || draft.chargeDay > 31) {
     return 'Ingresa un día de cargo válido entre 1 y 31.'
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.startDate)) {
+    return 'Captura la fecha del primer cargo mensual según el banco.'
   }
   return null
 }
@@ -254,7 +305,7 @@ export function buildInstallmentInsertPayload(draft: InstallmentPlanDraft) {
     remaining_installments: calculateRemainingInstallments(draft.totalMonths, draft.currentInstallmentNumber),
     last_processed_installment_number: Math.max(0, draft.currentInstallmentNumber - 1),
     charge_day: draft.chargeDay,
-    start_date: draft.startDate || inferInstallmentStartDate(draft.currentInstallmentNumber, draft.chargeDay),
+    start_date: draft.startDate,
     last_charge_date: null,
     notes: draft.notes?.trim() || null,
     status: 'active' as const,
@@ -408,7 +459,7 @@ async function ensureInstallmentTransaction(
     .insert({
       user_id: plan.user_id,
       transaction_type: 'credit_card_purchase',
-      amount: Number(plan.monthly_amount || 0),
+      amount: getInstallmentAmount(plan, installmentNumber),
       transaction_date: formatISOTimestamp(chargeDate),
       description: buildInstallmentTransactionDescription(plan, installmentNumber),
       status: 'completed',

@@ -1,4 +1,5 @@
 import {
+  getInstallmentAmount,
   getInstallmentChargeDate,
   getOutstandingInstallmentCount,
   type CreditCardInstallment,
@@ -490,7 +491,7 @@ export function buildInstallmentEvents(
         sourceId: plan.id,
         date: formatDateOnly(chargeDate),
         title: plan.description,
-        amount: Number(plan.monthly_amount || 0),
+        amount: getInstallmentAmount(plan, installmentNumber),
         direction: 'outflow',
         sourceType: 'installment',
         creditCardId: plan.credit_card_id,

@@ -180,6 +180,19 @@ export default function GastosPage() {
     () => summarizeMonthSeries(transactions, installments, appDate, msiPurchaseIds, 6),
     [transactions, installments, appDate, msiPurchaseIds]
   )
+  const historicalAverage12 = useMemo(
+    () => budgetInsights.reduce((total, row) => total + row.average12Months, 0),
+    [budgetInsights]
+  )
+  const projectedMonthEndSpend = useMemo(() => {
+    if (periodMode !== 'current' || appDate.getDate() < 5) return null
+    const daysInMonth = new Date(appDate.getFullYear(), appDate.getMonth() + 1, 0).getDate()
+    return generatedExpense / appDate.getDate() * daysInMonth
+  }, [periodMode, appDate, generatedExpense])
+  const leadingCategory = categoryData[0]
+  const leadingCategoryShare = generatedExpense > 0 && leadingCategory
+    ? leadingCategory.value / generatedExpense * 100
+    : 0
 
   if (loading) {
     return (
@@ -266,13 +279,56 @@ export default function GastosPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-          <MiniStat label="Gasto generado" value={formatMoney(generatedExpense)} valueClassName="text-rose-600" />
+          <MiniStat label="Gasto total (real + MSI)" value={formatMoney(generatedExpense)} valueClassName="text-rose-600" />
           <MiniStat label="Gasto real" value={formatMoney(realExpense)} />
           <MiniStat label="MSI del periodo" value={formatMoney(msiExpense)} valueClassName={msiExpense > 0 ? 'text-sky-600' : 'text-slate-950'} />
           <MiniStat label="Presupuesto" value={formatMoney(totalBudget)} />
           <MiniStat label="Gastado presupuestal" value={formatMoney(totalSpent)} valueClassName={totalSpent <= totalBudget ? 'text-slate-950' : 'text-rose-600'} />
           <MiniStat label="Sin categoría" value={formatMoney(uncategorized)} valueClassName={uncategorized > 0 ? 'text-amber-600' : 'text-slate-950'} />
         </div>
+
+        <section className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-[2rem] border border-indigo-100 bg-indigo-50/70 p-6">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-indigo-600">
+              Lectura de {selectedPeriod.label}
+            </p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">Qué significa tu gasto</h2>
+            <p className="mt-3 text-sm font-bold leading-relaxed text-slate-700">
+              {exceeded[0]
+                ? `${exceeded[0].categoryName} ya rebasó su límite por ${formatMoney(Math.abs(exceeded[0].remaining))}.`
+                : leadingCategory
+                  ? `${leadingCategory.name} es tu categoría más grande: ${formatMoney(leadingCategory.value)}${leadingCategoryShare > 0 ? `, ${leadingCategoryShare.toFixed(0)}% del gasto del periodo.` : '.'}`
+                  : 'Aún no hay gastos registrados en este periodo para identificar tendencias.'}
+            </p>
+          </div>
+
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+              {projectedMonthEndSpend === null ? 'Referencia histórica' : 'Estimación al cierre'}
+            </p>
+            {projectedMonthEndSpend === null ? (
+              <>
+                <p className="mt-2 text-2xl font-black text-slate-950">{formatMoney(historicalAverage12)}</p>
+                <p className="mt-2 text-sm font-bold text-slate-500">
+                  Promedio mensual de los 12 meses anteriores. La sugerencia no cambia tu presupuesto.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-2xl font-black text-slate-950">{formatMoney(projectedMonthEndSpend)}</p>
+                <p className="mt-2 text-sm font-bold text-slate-500">
+                  Si mantienes el ritmo actual de {formatMoney(generatedExpense)} en {appDate.getDate()} días.
+                  {historicalAverage12 > 0
+                    ? ` Promedio de los 12 meses previos: ${formatMoney(historicalAverage12)}.`
+                    : ''}
+                </p>
+                <p className="mt-2 text-xs font-semibold text-slate-400">
+                  Proyección lineal; no es un cargo ni incluye compras futuras que aún no registraste.
+                </p>
+              </>
+            )}
+          </div>
+        </section>
 
         <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center justify-between gap-4">
@@ -395,7 +451,7 @@ export default function GastosPage() {
               <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">Presupuesto inteligente</p>
               <h2 className="mt-1 text-2xl font-black text-slate-950">Sugerencias para el siguiente mes</h2>
               <p className="mt-2 max-w-3xl text-sm font-bold text-slate-500">
-                Calculado con promedios de 3 y 6 meses, tendencia reciente, mensualidades MSI futuras y recurrentes categorizados. Es una recomendación, no modifica tu presupuesto.
+                Combina 50% del promedio de 3 meses, 30% de 6 meses y 20% de 12 meses; suma MSI y recurrentes previstos. Es una recomendación, no modifica tu presupuesto.
               </p>
             </div>
             <Brain className="text-emerald-500" />
@@ -409,6 +465,7 @@ export default function GastosPage() {
                   <th className="px-5 py-4">Periodo actual</th>
                   <th className="px-5 py-4">Prom. 3m</th>
                   <th className="px-5 py-4">Prom. 6m</th>
+                  <th className="px-5 py-4">Prom. 12m</th>
                   <th className="px-5 py-4">MSI futuro</th>
                   <th className="px-5 py-4">Recurrente</th>
                   <th className="px-5 py-4">Actual</th>
@@ -439,6 +496,7 @@ export default function GastosPage() {
                     </td>
                     <td className="px-5 py-4 font-bold text-slate-600">{formatMoney(row.average3Months)}</td>
                     <td className="px-5 py-4 font-bold text-slate-600">{formatMoney(row.average6Months)}</td>
+                    <td className="px-5 py-4 font-bold text-slate-600">{formatMoney(row.average12Months)}</td>
                     <td className="px-5 py-4 font-bold text-sky-600">{formatMoney(row.futureInstallmentSpend)}</td>
                     <td className="px-5 py-4 font-bold text-violet-600">{formatMoney(row.recurringProjected)}</td>
                     <td className="px-5 py-4 font-bold text-slate-600">{formatMoney(row.currentBudget)}</td>

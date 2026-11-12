@@ -159,6 +159,13 @@ export default function Home() {
   const [loadError, setLoadError] = useState('')
   const appDate = useMemo(() => getAppDate(), [])
   const selectedMonth = useMemo(() => currentMonthKey(), [])
+  const selectedMonthLabel = useMemo(() => {
+    const [year, month] = selectedMonth.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString('es-MX', {
+      month: 'long',
+      year: 'numeric',
+    })
+  }, [selectedMonth])
 
   const loadDashboard = useCallback(async () => {
     setLoadError('')
@@ -595,10 +602,10 @@ export default function Home() {
     if (topCategory) {
       return {
         tone: 'emerald' as const,
-        status: 'Atención',
+        status: 'Mayor gasto',
         title: topCategory.name,
         text: `${topCategory.name} concentra ${formatMoney(topCategory.value)} este mes.`,
-        progress: 62,
+        progress: 0,
       }
     }
 
@@ -768,6 +775,9 @@ export default function Home() {
             <div className="flex flex-wrap gap-3">
               <Link href="/flujo" className="rounded-2xl bg-emerald-400 px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl shadow-emerald-950/20 transition hover:-translate-y-0.5 hover:bg-emerald-300 active:scale-95">
                 Simular compra
+              </Link>
+              <Link href="/diagnostico" className="rounded-2xl border border-indigo-300/40 bg-indigo-400/10 px-5 py-4 text-sm font-black uppercase tracking-widest text-indigo-100 transition hover:bg-indigo-400/20 active:scale-95">
+                Ver diagnóstico
               </Link>
               <Link href="/movimientos/nuevo" className="rounded-2xl bg-white px-5 py-4 text-sm font-black uppercase tracking-widest text-slate-950 shadow-xl shadow-slate-950/20 transition hover:-translate-y-0.5 hover:bg-slate-100 active:scale-95">
                 Registrar movimiento
@@ -1152,14 +1162,24 @@ export default function Home() {
           <div className={`rounded-[2rem] border p-6 shadow-xl ${healthCardClasses[primaryAttention.tone]}`}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">Atención principal</p>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+                  {leakHealth.tone === 'slate'
+                    ? cashflowProjection.summary.nextIncomeDate
+                      ? `Flujo hasta ${formatDate(cashflowProjection.summary.nextIncomeDate)}`
+                      : 'Proyección de flujo'
+                    : `Foco de gasto · ${selectedMonthLabel}`}
+                </p>
                 <h2 className="mt-2 text-2xl font-black text-slate-950">{primaryAttention.title}</h2>
               </div>
               <AlertTriangle size={24} className={primaryAttention.tone === 'rose' ? 'text-rose-500' : primaryAttention.tone === 'amber' ? 'text-amber-500' : 'text-slate-400'} />
             </div>
             <p className="mt-4 text-sm font-bold leading-relaxed text-slate-600">{primaryAttention.text}</p>
             <p className="mt-2 text-xs font-bold leading-relaxed text-slate-500">
-              Incluye gasto del mes y mensualidades MSI asignadas a esa categoría.
+              {leakHealth.tone === 'slate'
+                ? cashflowProjection.summary.nextIncomeDate
+                  ? `Periodo proyectado hasta ${formatDate(cashflowProjection.summary.nextIncomeDate)}; considera los ingresos y compromisos registrados.`
+                  : 'No hay ingresos programados suficientes para delimitar el periodo de esta lectura.'
+                : `Periodo: ${selectedMonthLabel}. Combina gasto registrado y mensualidades MSI; compáralo con tu límite en Gastos.`}
             </p>
             {leakHealth.progress > 0 && (
               <div className="mt-5">
@@ -1175,8 +1195,8 @@ export default function Home() {
                 </div>
               </div>
             )}
-            <Link href="/gastos" className="mt-5 inline-flex text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
-              Revisar gastos
+            <Link href={leakHealth.tone === 'slate' ? '/flujo' : '/gastos'} className="mt-5 inline-flex text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-slate-950">
+              {leakHealth.tone === 'slate' ? 'Ver planificación' : 'Ver detalle de gastos'}
             </Link>
           </div>
 

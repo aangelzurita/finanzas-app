@@ -207,7 +207,9 @@ export default function EditarMovimientoPage() {
     }
 
     if (transactionType === 'credit_card_payment') {
-      if (!sourceAccountId) return fail('Selecciona la cuenta desde la que pagas.'), false
+      if (!liquidAccounts.some((account) => account.id === sourceAccountId)) {
+        return fail('Selecciona la cuenta de efectivo, débito o ahorro desde la que salió el pago.'), false
+      }
       if (!relatedCreditCardId) return fail('Selecciona la tarjeta.'), false
     }
 
@@ -440,7 +442,12 @@ export default function EditarMovimientoPage() {
                 onChange={(e) => {
                   const nextType = e.target.value as TransactionType
                   setTransactionType(nextType)
-                  if (nextType === 'credit_card_payment') setApplyToCardPaymentPending(true)
+                  if (nextType === 'credit_card_payment') {
+                    setApplyToCardPaymentPending(true)
+                    if (!liquidAccounts.some((account) => account.id === sourceAccountId)) {
+                      setSourceAccountId('')
+                    }
+                  }
                 }}
               >
                 <option value="expense">📉 Gasto / Retiro</option>
@@ -626,6 +633,9 @@ export default function EditarMovimientoPage() {
                       <option key={account.id} value={account.id}>{account.name}</option>
                     ))}
                   </select>
+                  <p className="mt-2 text-xs font-medium text-slate-500">
+                    Elige la cuenta que realmente aportó el dinero. No uses la cuenta espejo de la tarjeta.
+                  </p>
                 </div>
                 <div className="col-span-2 md:col-span-1">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Tarjeta a pagar</label>
