@@ -511,6 +511,7 @@ export function buildCreditCardPaymentEvents(
 ): FinancialCalendarEvent[] {
   const from = parseDateOnly(options.from || new Date())
   const to = parseDateOnly(options.to || addDays(from, 60))
+  const transactions = options.transactions || []
 
   return cards
     .flatMap((card) => {
@@ -520,6 +521,29 @@ export function buildCreditCardPaymentEvents(
 
       const dueDate = firstDateOnOrAfter(from, Number(card.payment_due_day || from.getDate()))
       const amountNeedsConfirmation = amount <= 0
+      const previousDueDate = new Date(
+        dueDate.getFullYear(),
+        dueDate.getMonth() - 1,
+        safeDayForMonth(
+          dueDate.getFullYear(),
+          dueDate.getMonth() - 1,
+          Number(card.payment_due_day || from.getDate())
+        )
+      )
+      const paymentAlreadyRegistered = amountNeedsConfirmation && transactions.some((tx) => {
+        if (
+          tx.transaction_type !== 'credit_card_payment' ||
+          tx.related_credit_card_id !== card.id ||
+          !isCompletedTransaction(tx)
+        ) {
+          return false
+        }
+
+        const transactionDate = parseDateOnly(tx.transaction_date.slice(0, 10))
+        return transactionDate >= previousDueDate && transactionDate <= dueDate
+      })
+
+      if (paymentAlreadyRegistered) return []
 
       return [{
         id: `credit_card_payment-${card.id}-${formatDateOnly(dueDate)}`,
